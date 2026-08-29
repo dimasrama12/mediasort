@@ -1,0 +1,42 @@
+# ---- Build output ----
+source/build/bin/
+source/frontend/dist/
+*.exe
+*.app
+*.dmg
+*.pkg
+
+# ---- Dependencies ----
+node_modules/
+source/frontend/node_modules/
+
+# ---- Go ----
+*.test
+*.out
+vendor/
+
+# ---- Frontend caches ----
+source/frontend/package.json.md5
+.vite/
+*.tsbuildinfo
+
+# ---- Editor / OS ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- AI tooling / local agent state ----
+.claude/
+.claude-flow/
+.agent/
+
+# ---- Secrets / local config ----
+*.env
+.env*
+settings.local.json
+
+# ---- Misc ----
+nul_
+*.log

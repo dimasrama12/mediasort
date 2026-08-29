@@ -1,0 +1,25 @@
+{
+    "$schema": "https://wails.io/schemas/config.v2.json",
+    "name": "PhotoSort",
+    "outputfilename": "PhotoSort",
+    "frontend:install": "npm install",
+    "frontend:build": "npm run build",
+    "frontend:dev:watcher": "npm run dev",
+    "frontend:dev:serverUrl": "http://localhost:5173",
+    "author": {
+        "name": "PhotoSort Team",
+        "email": "support@photosort.app"
+    },
+    "info": {
+        "companyName": "PhotoSort",
+        "productName": "PhotoSort",
+        "productVersion": "4.6.1",
+        "copyright": "Copyright © 2026 PhotoSort",
+        "comments": "AI-Powered Photo & File Sorting Application"
+    },
+    "wailsjsdir": "./frontend/src",
+    "assetdir": "./frontend/dist",
+    "reloaddirs": "frontend/src",
+    "build:dir": "./build",
+    "nsisType": "multiple"
+}
