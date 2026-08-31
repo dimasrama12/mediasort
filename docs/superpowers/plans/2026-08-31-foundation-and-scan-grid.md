@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **Toolchain:** Rust MSVC (`stable-x86_64-pc-windows-msvc`) — already set as a directory override. `cargo`/`tauri` commands require the MSVC C++ Build Tools to be installed first.
+- **Toolchain:** Rust **GNU** (`stable-x86_64-pc-windows-gnu`) for dev (MSVC deferred — insufficient C: space). Builds output to `D:/mediasort-target` via `.cargo/config.toml` (MinGW can't handle the space in the project path); lib crate-type is `rlib`-only. `cargo build` verified working on GNU.
 - **Tauri v2**, Rust edition 2021. Crate = `mediasort`, lib = `mediasort_lib`.
 - **Supported extensions** — photos: `jpg jpeg png gif webp bmp tiff heic heif svg`; video: `mp4 mkv mov avi webm`. (Lowercased comparison.)
 - **No AI, no network.** No base64 image bytes over IPC — images will be delivered via the asset protocol in a later slice.

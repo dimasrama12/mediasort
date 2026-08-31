@@ -241,7 +241,8 @@ Minimal Tauri v2 capability set (PRD §6): the `asset` protocol scoped to (a) th
 
 ## 10. Build & packaging
 
-- Toolchain: **MSVC** (`stable-x86_64-pc-windows-msvc`) via project-level `rustup override` — Tauri's supported Windows path; Windows SDK provides `signtool`.
+- **Dev toolchain: GNU** (`stable-x86_64-pc-windows-gnu`; MinGW already present). MSVC was the intended path, but its Build Tools need ~6–8 GB and C: has only ~3.5 GB free, so development builds use GNU. Two accommodations make GNU work: (1) `.cargo/config.toml` redirects `target-dir` to the space-free `D:/mediasort-target` (MinGW's `dlltool`/`as` choke on the space in `D:\vibe coding\photosort`); (2) the lib is `crate-type = ["rlib"]` only — the mobile-only `cdylib`/`staticlib` trip MinGW's "export ordinal too large". Verified: `cargo build` produces `mediasort.exe`.
+- **Release & signing:** a signed installer (criterion #11) needs `signtool` from the Windows SDK (i.e. MSVC). Deferred to the packaging slice — by then we either free C: for MSVC or sign another way. Features/playback are toolchain-independent.
 - Bundler: NSIS (small) and/or WiX MSI; target **signed installer ~≤15 MB** (criterion #11). No bundled ffmpeg (§2.2).
 - Product name **MediaSort**; app-data namespace `MediaSort` (v1 used `PhotoSort`).
 
