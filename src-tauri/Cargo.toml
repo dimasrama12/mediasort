@@ -12,9 +12,9 @@ edition = "2021"
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "mediasort_lib"
-# Desktop-only (Windows). Mobile-only "staticlib"/"cdylib" are dropped: MinGW's
-# linker hits "export ordinal too large" building the cdylib, and desktop Tauri
-# only needs the rlib linked into the mediasort.exe binary.
+# Desktop-only (Windows): the rlib is linked into the mediasort.exe binary.
+# Mobile-only "staticlib"/"cdylib" are dropped — mobile isn't a target, and they
+# also tripped MinGW's "export ordinal too large" back on the GNU toolchain.
 crate-type = ["rlib"]
 
 [build-dependencies]
@@ -25,4 +25,8 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+walkdir = "2.5.0"
+
+[dev-dependencies]
+tempfile = "3.27.0"
 
