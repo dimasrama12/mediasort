@@ -37,6 +37,11 @@ desktop.ini
 .env*
 settings.local.json
 
+# ---- Tauri v2 / Vite (root app) ----
+/dist/
+/src-tauri/target/
+/src-tauri/gen/
+
 # ---- Misc ----
 nul_
 *.log
