@@ -1,0 +1,8 @@
+# Pin the MSVC host toolchain for MediaSort v2.
+#
+# GNU (stable-x86_64-pc-windows-gnu) was tried first, but its test binaries die
+# at load on Tauri's WebView2 import chain (STATUS_ENTRYPOINT_NOT_FOUND), so
+# `cargo test` can't run. MSVC links WebView2 correctly and runs the tests.
+# See docs/superpowers/plans/2026-08-31-foundation-and-scan-grid.md.
+[toolchain]
+channel = "stable-x86_64-pc-windows-msvc"

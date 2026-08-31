@@ -1,8 +1,9 @@
-# Redirect Cargo's build output to a space-free path.
+# Redirect Cargo's build output off the source tree onto D:.
 #
-# The project lives at "D:\vibe coding\photosort" (note the space). MinGW's
-# dlltool/as split paths at the space and fail ("can't open coding\photosort..."),
-# which breaks GNU-toolchain builds. Pointing target-dir at a space-free folder
-# keeps the GNU toolchain working without moving the project or touching C:.
+# Keeps the multi-GB target directory off the tight C: drive and out of
+# "D:\vibe coding\photosort" (so it never lands in git). Originally added because
+# MinGW's dlltool/as split the space in the project path and broke GNU builds;
+# the MSVC toolchain handles the space fine, but the redirect stays for the
+# disk-space and clean-tree reasons above.
 [build]
 target-dir = "D:/mediasort-target"
