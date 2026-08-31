@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "mediasort",
+  "productName": "MediaSort",
   "version": "0.1.0",
   "identifier": "com.dimasrama.mediasort",
   "build": {
@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "mediasort",
-        "width": 800,
-        "height": 600
+        "title": "MediaSort",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600
       }
     ],
     "security": {
