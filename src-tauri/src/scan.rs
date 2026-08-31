@@ -6,6 +6,8 @@ use std::path::Path;
 use walkdir::WalkDir;
 
 /// True if the extension (without dot) is a supported photo/video type.
+/// Part of the scan API surface; consumed by later slices (filters/grouping).
+#[allow(dead_code)]
 pub fn is_supported(ext: &str) -> bool {
     FileType::from_extension(ext).is_some()
 }
@@ -36,7 +38,9 @@ pub fn build_file_info(path: &Path) -> Option<FileInfo> {
 }
 
 /// Recursively scan the given roots, returning all supported media files.
-/// Synchronous core shared by the streaming command and by tests.
+/// Synchronous core exercised by unit tests; the streaming `scan_folders`
+/// command mirrors this walk with batching, progress events, and cancellation.
+#[allow(dead_code)]
 pub fn scan_paths_collect(roots: &[String]) -> Vec<FileInfo> {
     let mut out = Vec::new();
     for root in roots {
@@ -49,6 +53,75 @@ pub fn scan_paths_collect(roots: &[String]) -> Vec<FileInfo> {
         }
     }
     out
+}
+
+use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::{AppHandle, Emitter, State};
+
+/// Managed state holding the cooperative-cancellation flag for the active scan.
+#[derive(Default)]
+pub struct ScanState {
+    pub cancel: AtomicBool,
+}
+
+#[derive(Serialize, Clone)]
+struct Progress {
+    done: usize,
+}
+#[derive(Serialize, Clone)]
+struct Done {
+    total: usize,
+}
+
+/// Scan `paths` recursively on a background thread, streaming results to the UI:
+/// `scan-file` batches of up to 100 `FileInfo`, `scan-progress` counts, and a
+/// final `scan-done`. Honors cooperative cancellation via `cancel_scan`.
+#[tauri::command]
+pub async fn scan_folders(
+    app: AppHandle,
+    state: State<'_, ScanState>,
+    paths: Vec<String>,
+) -> Result<(), String> {
+    state.cancel.store(false, Ordering::SeqCst);
+
+    let mut batch: Vec<FileInfo> = Vec::with_capacity(100);
+    let mut done = 0usize;
+
+    for root in &paths {
+        for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
+            if state.cancel.load(Ordering::SeqCst) {
+                app.emit("scan-done", Done { total: done }).ok();
+                return Ok(());
+            }
+            if entry.file_type().is_file() {
+                if let Some(fi) = build_file_info(entry.path()) {
+                    batch.push(fi);
+                    done += 1;
+                    if batch.len() >= 100 {
+                        app.emit("scan-file", batch.clone())
+                            .map_err(|e| e.to_string())?;
+                        app.emit("scan-progress", Progress { done }).ok();
+                        batch.clear();
+                    }
+                }
+            }
+        }
+    }
+    if !batch.is_empty() {
+        app.emit("scan-file", batch.clone())
+            .map_err(|e| e.to_string())?;
+    }
+    app.emit("scan-progress", Progress { done }).ok();
+    app.emit("scan-done", Done { total: done })
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Request cancellation of the in-progress scan (checked each walk iteration).
+#[tauri::command]
+pub fn cancel_scan(state: State<'_, ScanState>) {
+    state.cancel.store(true, Ordering::SeqCst);
 }
 
 #[cfg(test)]
