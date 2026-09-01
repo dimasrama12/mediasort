@@ -2,6 +2,8 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use tauri::State;
+use tokio::sync::Semaphore;
 
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -75,14 +77,11 @@ pub fn is_raster_supported(ext: &str) -> bool {
     )
 }
 
-use tauri::State;
-use tokio::sync::Semaphore;
-
 /// Managed state: resolved cache dir + a small permit pool that bounds how many
 /// CPU-bound generations run at once (keeps the app responsive under fast scroll).
 pub struct ThumbState {
     pub cache_dir: PathBuf,
-    pub sem: Semaphore,
+    pub(crate) sem: Semaphore,
 }
 
 impl ThumbState {
