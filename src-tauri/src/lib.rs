@@ -1,6 +1,7 @@
 mod model;
 mod paths;
 mod scan;
+mod thumbnail;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
