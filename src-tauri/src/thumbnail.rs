@@ -1,6 +1,6 @@
 //! Thumbnail generation + on-disk cache (asset-protocol delivery).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -30,6 +30,33 @@ pub fn generate_thumbnail(src: &Path, dst: &Path, max_edge: u32) -> Result<(), S
     }
     std::fs::rename(&tmp, dst).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Return the cache path for `path`'s thumbnail, generating it if absent.
+/// Rejects non-raster inputs (the frontend already gates, this is defense).
+pub fn ensure_thumbnail_sync(cache_dir: &Path, path: &str) -> Result<PathBuf, String> {
+    let ext = Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    if !is_raster_supported(ext) {
+        return Err(format!("unsupported thumbnail type: {ext}"));
+    }
+    let norm = crate::paths::normalize_path(path);
+    let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let key = thumb_cache_key(&norm, mtime, meta.len());
+    let dst = cache_dir.join(format!("{key}.jpg"));
+    if dst.exists() {
+        return Ok(dst);
+    }
+    generate_thumbnail(Path::new(path), &dst, 512)?;
+    Ok(dst)
 }
 
 /// Stable per-file cache identity. Any change to path, mtime, or size yields a
@@ -95,5 +122,34 @@ mod tests {
         generate_thumbnail(&src, &dst, 512).unwrap();
         let t = image::open(&dst).unwrap();
         assert_eq!((t.width(), t.height()), (100, 80));
+    }
+
+    #[test]
+    fn generates_then_hits_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache");
+        std::fs::create_dir(&cache).unwrap();
+        let src = dir.path().join("a.png");
+        image::RgbImage::from_pixel(640, 480, image::Rgb([9, 9, 9]))
+            .save(&src)
+            .unwrap();
+
+        let p1 = ensure_thumbnail_sync(&cache, src.to_str().unwrap()).unwrap();
+        assert!(p1.exists());
+        let t = image::open(&p1).unwrap();
+        assert!(t.width().max(t.height()) <= 512);
+
+        let p2 = ensure_thumbnail_sync(&cache, src.to_str().unwrap()).unwrap();
+        assert_eq!(p1, p2);
+        assert_eq!(std::fs::read_dir(&cache).unwrap().count(), 1); // cache hit, no dup
+    }
+
+    #[test]
+    fn rejects_unsupported_and_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let txt = dir.path().join("note.txt");
+        std::fs::write(&txt, b"x").unwrap();
+        assert!(ensure_thumbnail_sync(dir.path(), txt.to_str().unwrap()).is_err());
+        assert!(ensure_thumbnail_sync(dir.path(), dir.path().join("gone.png").to_str().unwrap()).is_err());
     }
 }
