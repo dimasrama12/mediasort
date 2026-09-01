@@ -3,6 +3,8 @@ mod paths;
 mod scan;
 mod thumbnail;
 
+use tauri::Manager;
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -15,10 +17,22 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(scan::ScanState::default())
+        .setup(|app| {
+            let cache_dir = app
+                .path()
+                .app_data_dir()
+                .expect("resolve app_data_dir")
+                .join("thumbnails");
+            std::fs::create_dir_all(&cache_dir).ok();
+            app.manage(thumbnail::ThumbState::new(cache_dir));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             greet,
             scan::scan_folders,
-            scan::cancel_scan
+            scan::cancel_scan,
+            thumbnail::ensure_thumbnail,
+            thumbnail::clear_thumbnail_cache
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

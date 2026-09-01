@@ -75,6 +75,45 @@ pub fn is_raster_supported(ext: &str) -> bool {
     )
 }
 
+use tauri::State;
+use tokio::sync::Semaphore;
+
+/// Managed state: resolved cache dir + a small permit pool that bounds how many
+/// CPU-bound generations run at once (keeps the app responsive under fast scroll).
+pub struct ThumbState {
+    pub cache_dir: PathBuf,
+    pub sem: Semaphore,
+}
+
+impl ThumbState {
+    pub fn new(cache_dir: PathBuf) -> Self {
+        Self { cache_dir, sem: Semaphore::new(4) }
+    }
+}
+
+#[tauri::command]
+pub async fn ensure_thumbnail(
+    state: State<'_, ThumbState>,
+    path: String,
+) -> Result<String, String> {
+    let _permit = state.sem.acquire().await.map_err(|e| e.to_string())?;
+    let cache_dir = state.cache_dir.clone();
+    let dst = tauri::async_runtime::spawn_blocking(move || ensure_thumbnail_sync(&cache_dir, &path))
+        .await
+        .map_err(|e| e.to_string())??;
+    Ok(dst.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn clear_thumbnail_cache(state: State<'_, ThumbState>) -> Result<(), String> {
+    let dir = state.cache_dir.clone();
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
