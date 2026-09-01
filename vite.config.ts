@@ -19,5 +19,6 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["@testing-library/jest-dom/vitest"],
+    pool: "vmThreads",
   },
 });

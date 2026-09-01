@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 
 /** Start a background scan of the given folders. Results arrive via scan-* events. */
@@ -13,3 +13,9 @@ export async function pickFolders(): Promise<string[] | null> {
   if (res == null) return null;
   return Array.isArray(res) ? res : [res];
 }
+
+export const ensureThumbnail = async (path: string): Promise<string> =>
+  convertFileSrc(await invoke<string>("ensure_thumbnail", { path }));
+
+export const clearThumbnailCache = (): Promise<void> =>
+  invoke<void>("clear_thumbnail_cache");
