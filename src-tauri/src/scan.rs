@@ -57,7 +57,7 @@ pub fn scan_paths_collect(roots: &[String]) -> Vec<FileInfo> {
 
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 /// Managed state holding the cooperative-cancellation flag for the active scan.
 #[derive(Default)]
@@ -84,6 +84,13 @@ pub async fn scan_folders(
     paths: Vec<String>,
 ) -> Result<(), String> {
     state.cancel.store(false, Ordering::SeqCst);
+
+    // Let the webview load originals under these roots via the asset protocol
+    // (full-res preview + inline video). Best-effort: a failed grant only means
+    // that file falls back to the filename card, never a crash.
+    for root in &paths {
+        let _ = app.asset_protocol_scope().allow_directory(root, true);
+    }
 
     let mut batch: Vec<FileInfo> = Vec::with_capacity(100);
     let mut done = 0usize;
