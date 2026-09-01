@@ -6,6 +6,7 @@ interface AppState {
   scanning: boolean;
   scanned: number;
   previewId: string | null;
+  focusedId: string | null;
   startScan: () => void;
   addFiles: (batch: FileInfo[]) => void;
   finishScan: (total: number) => void;
@@ -14,6 +15,7 @@ interface AppState {
   closePreview: () => void;
   previewNext: () => void;
   previewPrev: () => void;
+  setFocus: (id: string | null) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -21,10 +23,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   scanning: false,
   scanned: 0,
   previewId: null,
-  startScan: () => set({ scanning: true, files: [], scanned: 0, previewId: null }),
+  focusedId: null,
+  startScan: () => set({ scanning: true, files: [], scanned: 0, previewId: null, focusedId: null }),
   addFiles: (batch) => set((s) => ({ files: [...s.files, ...batch] })),
   finishScan: (total) => set({ scanning: false, scanned: total }),
-  reset: () => set({ files: [], scanning: false, scanned: 0, previewId: null }),
+  reset: () => set({ files: [], scanning: false, scanned: 0, previewId: null, focusedId: null }),
   openPreview: (id) => set({ previewId: id }),
   closePreview: () => set({ previewId: null }),
   previewNext: () => {
@@ -39,4 +42,5 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (i <= 0) return;
     set({ previewId: files[i - 1].id });
   },
+  setFocus: (id) => set({ focusedId: id }),
 }));

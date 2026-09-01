@@ -59,3 +59,20 @@ test("reset clears previewId", () => {
   useAppStore.getState().reset();
   expect(useAppStore.getState().previewId).toBeNull();
 });
+
+test("setFocus sets and clears focusedId", () => {
+  useAppStore.setState({ focusedId: null });
+  useAppStore.getState().setFocus("a");
+  expect(useAppStore.getState().focusedId).toBe("a");
+  useAppStore.getState().setFocus(null);
+  expect(useAppStore.getState().focusedId).toBeNull();
+});
+
+test("startScan and reset clear focusedId", () => {
+  useAppStore.setState({ focusedId: "a" });
+  useAppStore.getState().startScan();
+  expect(useAppStore.getState().focusedId).toBeNull();
+  useAppStore.setState({ focusedId: "b" });
+  useAppStore.getState().reset();
+  expect(useAppStore.getState().focusedId).toBeNull();
+});
