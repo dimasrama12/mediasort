@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useAppStore } from "../store/useAppStore";
+import { FileCard } from "./FileCard";
 
 const CARD = 160; // px cell size (the thumbnail slice will fill these)
 
@@ -30,13 +31,7 @@ export function FileGrid() {
               style={{ top: vr.start, height: CARD, width: "100%" }}
             >
               {cells.map((f) => (
-                <div
-                  key={f.id}
-                  className="w-[152px] h-[150px] rounded bg-neutral-800 border border-neutral-700 overflow-hidden flex items-end p-1"
-                  title={f.path}
-                >
-                  <span className="text-[11px] text-neutral-300 truncate w-full">{f.name}</span>
-                </div>
+                <FileCard key={f.id} file={f} />
               ))}
             </div>
           );
