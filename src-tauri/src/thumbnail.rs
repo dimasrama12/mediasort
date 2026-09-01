@@ -1,6 +1,9 @@
 //! Thumbnail generation + on-disk cache (asset-protocol delivery).
 
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Decode `src`, fit it within `max_edge` (preserving aspect, never upscaling),
 /// and write a JPEG to `dst`. Writes to a temp sibling then renames, so a crash
@@ -14,7 +17,11 @@ pub fn generate_thumbnail(src: &Path, dst: &Path, max_edge: u32) -> Result<(), S
     };
     let rgb = scaled.to_rgb8();
 
-    let tmp = dst.with_extension("tmp");
+    let tmp = dst.with_extension(format!(
+        "{}.{}.tmp",
+        std::process::id(),
+        TMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
     {
         let file = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
         let mut enc =
