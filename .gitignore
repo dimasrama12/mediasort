@@ -46,3 +46,4 @@ settings.local.json
 # ---- Misc ----
 nul_
 *.log
+build_output.txt
