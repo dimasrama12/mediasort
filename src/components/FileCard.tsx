@@ -1,11 +1,15 @@
 import type { FileInfo } from "../lib/types";
 import { useThumbnail } from "../lib/useThumbnail";
+import { useAppStore } from "../store/useAppStore";
 
 export function FileCard({ file }: { file: FileInfo }) {
   const { url, status } = useThumbnail(file);
+  const openPreview = useAppStore((s) => s.openPreview);
   return (
-    <div
-      className="w-[152px] h-[150px] rounded bg-neutral-800 border border-neutral-700 overflow-hidden relative flex items-end"
+    <button
+      type="button"
+      onClick={() => openPreview(file.id)}
+      className="w-[152px] h-[150px] rounded bg-neutral-800 border border-neutral-700 overflow-hidden relative flex items-end text-left"
       title={file.path}
     >
       {status === "ready" && url && (
@@ -15,6 +19,6 @@ export function FileCard({ file }: { file: FileInfo }) {
       <span className="relative z-10 w-full truncate p-1 text-[11px] text-neutral-200 bg-gradient-to-t from-black/70 to-transparent">
         {file.name}
       </span>
-    </div>
+    </button>
   );
 }
