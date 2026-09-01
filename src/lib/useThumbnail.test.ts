@@ -45,3 +45,16 @@ test("memo cache: two mounts of one file invoke once", async () => {
   await waitFor(() => expect(b.result.current.status).toBe("ready"));
   expect(invoke).toHaveBeenCalledTimes(1);
 });
+
+test("invoke rejection sets status error and null url", async () => {
+  vi.mocked(invoke).mockRejectedValueOnce(new Error("boom"));
+  const { result } = renderHook(() => useThumbnail(mk({ id: "err" })));
+  await waitFor(() => expect(result.current.status).toBe("error"));
+  expect(result.current.url).toBeNull();
+});
+
+test("heif is a placeholder and never invokes", () => {
+  const { result } = renderHook(() => useThumbnail(mk({ id: "hf", extension: "heif" })));
+  expect(result.current.status).toBe("placeholder");
+  expect(invoke).not.toHaveBeenCalled();
+});
