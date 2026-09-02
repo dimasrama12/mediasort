@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from "vitest";
 import { useAppStore } from "./useAppStore";
-import type { FileInfo, FolderInfo } from "../lib/types";
+import type { FileGroup, FileInfo, FolderInfo } from "../lib/types";
 
 const mk = (id: string): FileInfo => ({
   id,
@@ -60,6 +60,46 @@ test("previewNext / previewPrev move and clamp at both ends", () => {
   expect(useAppStore.getState().previewId).toBe("c");
   useAppStore.getState().previewNext(); // already last -> clamp
   expect(useAppStore.getState().previewId).toBe("c");
+});
+
+const grp = (id: string, fileIds: string[], type: "visual" | "temporal"): FileGroup => ({
+  id,
+  name: id,
+  fileIds,
+  similarity: type === "visual" ? 95 : 0,
+  timeSpan: type === "temporal" ? "2021-01-01 00:00 – 2021-01-01 01:00" : null,
+  groupType: type,
+});
+
+test("applyGroups stamps groupId on member files and sets groups + mode", () => {
+  useAppStore.setState({ files: [mk("a"), mk("b"), mk("c")], groups: [], groupMode: "none" });
+  useAppStore.getState().applyGroups([grp("visual-1", ["a", "c"], "visual")], "visual");
+  const s = useAppStore.getState();
+  expect(s.groupMode).toBe("visual");
+  expect(s.groups).toHaveLength(1);
+  expect(s.files.find((f) => f.id === "a")!.groupId).toBe("visual-1");
+  expect(s.files.find((f) => f.id === "b")!.groupId).toBeNull();
+  expect(s.files.find((f) => f.id === "c")!.groupId).toBe("visual-1");
+});
+
+test("clearGroups removes indicators and resets mode", () => {
+  useAppStore.setState({ files: [mk("a"), mk("b")], groups: [], groupMode: "none" });
+  useAppStore.getState().applyGroups([grp("temporal-1", ["a", "b"], "temporal")], "temporal");
+  useAppStore.getState().clearGroups();
+  const s = useAppStore.getState();
+  expect(s.groupMode).toBe("none");
+  expect(s.groups).toHaveLength(0);
+  expect(s.files.every((f) => f.groupId === null)).toBe(true);
+});
+
+test("re-applying groups reassigns membership (old indicators drop off)", () => {
+  useAppStore.setState({ files: [mk("a"), mk("b"), mk("c")], groups: [], groupMode: "none" });
+  useAppStore.getState().applyGroups([grp("visual-1", ["a", "b"], "visual")], "visual");
+  useAppStore.getState().applyGroups([grp("visual-1", ["b", "c"], "visual")], "visual");
+  const s = useAppStore.getState();
+  expect(s.files.find((f) => f.id === "a")!.groupId).toBeNull();
+  expect(s.files.find((f) => f.id === "b")!.groupId).toBe("visual-1");
+  expect(s.files.find((f) => f.id === "c")!.groupId).toBe("visual-1");
 });
 
 test("reset clears previewId", () => {

@@ -1,5 +1,7 @@
 import { create } from "zustand";
-import type { FileInfo, FolderInfo, TrashItem } from "../lib/types";
+import type { FileGroup, FileInfo, FolderInfo, TrashItem } from "../lib/types";
+
+export type GroupMode = "none" | "visual" | "temporal";
 
 interface MoveRecord {
   file: FileInfo;
@@ -26,6 +28,8 @@ interface AppState {
   moveHistory: MoveRecord[];
   trashOpen: boolean;
   trashItems: TrashItem[];
+  groups: FileGroup[];
+  groupMode: GroupMode;
   startScan: () => void;
   addFiles: (batch: FileInfo[]) => void;
   finishScan: (total: number) => void;
@@ -50,6 +54,8 @@ interface AppState {
   toggleTrash: () => void;
   setTrashItems: (items: TrashItem[]) => void;
   completeTrash: (ids: string[]) => void;
+  applyGroups: (groups: FileGroup[], mode: Exclude<GroupMode, "none">) => void;
+  clearGroups: () => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -64,6 +70,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   moveHistory: [],
   trashOpen: false,
   trashItems: [],
+  groups: [],
+  groupMode: "none",
   startScan: () =>
     set({
       scanning: true,
@@ -74,6 +82,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedIds: [],
       folders: [],
       moveHistory: [],
+      groups: [],
+      groupMode: "none",
     }),
   addFiles: (batch) => set((s) => ({ files: [...s.files, ...batch] })),
   finishScan: (total) => set({ scanning: false, scanned: total }),
@@ -90,6 +100,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       moveHistory: [],
       trashOpen: false,
       trashItems: [],
+      groups: [],
+      groupMode: "none",
     }),
   openPreview: (id) => set({ previewId: id }),
   closePreview: () => set({ previewId: null }),
@@ -213,4 +225,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       );
       return { files, focusedId: restored.id, folders, moveHistory: s.moveHistory.slice(0, -1) };
     }),
+  applyGroups: (groups, mode) =>
+    set((s) => {
+      const idToGroup = new Map<string, string>();
+      for (const g of groups) for (const fid of g.fileIds) idToGroup.set(fid, g.id);
+      const files = s.files.map((f) => {
+        const gid = idToGroup.get(f.id) ?? null;
+        return f.groupId === gid ? f : { ...f, groupId: gid };
+      });
+      return { files, groups, groupMode: mode };
+    }),
+  clearGroups: () =>
+    set((s) => ({
+      files: s.files.map((f) => (f.groupId == null ? f : { ...f, groupId: null })),
+      groups: [],
+      groupMode: "none",
+    })),
 }));
