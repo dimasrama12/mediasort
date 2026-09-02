@@ -1,19 +1,42 @@
+import type { MouseEvent } from "react";
 import type { FileInfo } from "../lib/types";
 import { useThumbnail } from "../lib/useThumbnail";
 import { useAppStore } from "../store/useAppStore";
 
-export function FileCard({ file, focused = false }: { file: FileInfo; focused?: boolean }) {
+export function FileCard({
+  file,
+  focused = false,
+  selected = false,
+}: {
+  file: FileInfo;
+  focused?: boolean;
+  selected?: boolean;
+}) {
   const { url, status } = useThumbnail(file);
-  const setFocus = useAppStore((s) => s.setFocus);
+  const selectOnly = useAppStore((s) => s.selectOnly);
+  const toggleSelected = useAppStore((s) => s.toggleSelected);
+  const selectRangeTo = useAppStore((s) => s.selectRangeTo);
   const openPreview = useAppStore((s) => s.openPreview);
+
+  const onClick = (e: MouseEvent<HTMLButtonElement>) => {
+    if (e.shiftKey) selectRangeTo(file.id);
+    else if (e.ctrlKey || e.metaKey) toggleSelected(file.id);
+    else selectOnly(file.id);
+  };
+
+  const border = focused
+    ? "border-blue-500 ring-2 ring-blue-500"
+    : selected
+      ? "border-sky-400"
+      : "border-neutral-700";
+  const bg = selected ? "bg-sky-500/20" : "bg-neutral-800";
+
   return (
     <button
       type="button"
-      onClick={() => setFocus(file.id)}
+      onClick={onClick}
       onDoubleClick={() => openPreview(file.id)}
-      className={`w-[152px] h-[150px] rounded bg-neutral-800 border overflow-hidden relative flex items-end text-left ${
-        focused ? "border-blue-500 ring-2 ring-blue-500" : "border-neutral-700"
-      }`}
+      className={`w-[152px] h-[150px] rounded ${bg} border overflow-hidden relative flex items-end text-left ${border}`}
       title={file.path}
     >
       {status === "ready" && url && (
