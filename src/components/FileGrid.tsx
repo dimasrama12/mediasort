@@ -22,6 +22,7 @@ export function FileGrid() {
   const completeTrash = useAppStore((s) => s.completeTrash);
   const toggleTrash = useAppStore((s) => s.toggleTrash);
   const closeTrash = useAppStore((s) => s.closeTrash);
+  const openRename = useAppStore((s) => s.openRename);
   const parentRef = useRef<HTMLDivElement>(null);
 
   // The visible set is what the grid renders and what keyboard nav operates on, so the
@@ -61,10 +62,14 @@ export function FileGrid() {
         moveHistory,
         selectedIds,
         trashOpen,
+        renameOpen,
         query,
       } = useAppStore.getState();
       // Operate on the visible (filtered) set, exactly what's on screen.
       const files = filterFiles(allFiles, query);
+
+      // Rename panel owns the keyboard while open (its own Esc closes it).
+      if (renameOpen) return;
 
       // Trash panel owns the keyboard while open: T/Esc close it, everything else inert.
       if (trashOpen) {
@@ -103,6 +108,15 @@ export function FileGrid() {
       if ((e.key === "t" || e.key === "T") && !e.ctrlKey && !e.altKey && !e.metaKey) {
         e.preventDefault();
         toggleTrash();
+        return;
+      }
+
+      // Open the rename panel (R) — needs at least one visible file.
+      if ((e.key === "r" || e.key === "R") && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (files.length > 0) {
+          e.preventDefault();
+          openRename();
+        }
         return;
       }
 
@@ -182,6 +196,7 @@ export function FileGrid() {
     completeTrash,
     toggleTrash,
     closeTrash,
+    openRename,
   ]);
 
   // Keep the focused cell in view.

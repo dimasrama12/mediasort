@@ -19,6 +19,7 @@ export function Toolbar() {
   const clearGroups = useAppStore((s) => s.clearGroups);
   const query = useAppStore((s) => s.query);
   const setQuery = useAppStore((s) => s.setQuery);
+  const openRename = useAppStore((s) => s.openRename);
   const [grouping, setGrouping] = useState(false);
 
   async function onScan() {
@@ -94,6 +95,14 @@ export function Toolbar() {
           </button>
         )}
       </div>
+
+      <button
+        onClick={() => openRename()}
+        disabled={scanning || files.length === 0}
+        className="px-2 py-1 rounded text-sm bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40"
+      >
+        Rename…
+      </button>
 
       <input
         type="search"

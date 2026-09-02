@@ -35,7 +35,7 @@ const fam = { id: "fam", name: "fam", path: "C:/base/fam", shortcut: 1, fileCoun
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useAppStore.setState({ files: [], focusedId: null, previewId: null, folders: [], moveHistory: [], selectedIds: [], trashOpen: false, query: "" });
+  useAppStore.setState({ files: [], focusedId: null, previewId: null, folders: [], moveHistory: [], selectedIds: [], trashOpen: false, renameOpen: false, query: "" });
 });
 afterEach(cleanup);
 
@@ -166,4 +166,18 @@ test("search narrows keyboard navigation to the visible files", () => {
   render(<FileGrid />);
   fireEvent.keyDown(window, { key: "ArrowRight" });
   expect(useAppStore.getState().focusedId).toBe("c"); // skipped the hidden "skip.jpg"
+});
+
+test("R opens the rename panel when files exist", () => {
+  useAppStore.setState({ files: [mk("a")], focusedId: "a", renameOpen: false });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "r" });
+  expect(useAppStore.getState().renameOpen).toBe(true);
+});
+
+test("grid keys are inert while the rename panel is open", () => {
+  useAppStore.setState({ files: [mk("a"), mk("b")], folders: [fam], focusedId: "a", renameOpen: true });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "1" });
+  expect(moveFiles).not.toHaveBeenCalled();
 });

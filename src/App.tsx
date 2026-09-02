@@ -4,6 +4,7 @@ import { Sidebar } from "./components/Sidebar";
 import { FileGrid } from "./components/FileGrid";
 import { Preview } from "./components/Preview";
 import { TrashPanel } from "./components/TrashPanel";
+import { RenamePanel } from "./components/RenamePanel";
 import { onScanFile, onScanDone } from "./lib/events";
 import { useAppStore } from "./store/useAppStore";
 
@@ -29,6 +30,7 @@ function App() {
       </div>
       <Preview />
       <TrashPanel />
+      <RenamePanel />
     </main>
   );
 }
