@@ -66,6 +66,46 @@ pub struct FolderInfo {
     pub file_count: u32, // files moved into it this session
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    Light,
+    Dark,
+    #[default]
+    System,
+}
+
+/// Persisted app settings (§4). JSON at `app_data/settings.json`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettings {
+    pub similarity_threshold: u8,
+    pub time_window_hours: f64,
+    pub min_group_size: u8,
+    pub theme: Theme,
+    pub default_view: String,
+    pub thumbnail_size: u16,
+    pub sidebar_width: u16,
+    pub sidebar_collapsed: bool,
+    pub cache_path: Option<String>,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            similarity_threshold: 80,
+            time_window_hours: 1.0,
+            min_group_size: 2,
+            theme: Theme::System,
+            default_view: "grid".into(),
+            thumbnail_size: 200,
+            sidebar_width: 224,
+            sidebar_collapsed: false,
+            cache_path: None,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct TrashItem {
@@ -152,6 +192,22 @@ mod tests {
             group_type: GroupType::Temporal,
         };
         assert!(serde_json::to_string(&t).unwrap().contains("\"groupType\":\"temporal\""));
+    }
+
+    #[test]
+    fn appsettings_defaults_and_camelcase() {
+        let d = AppSettings::default();
+        assert_eq!(d.similarity_threshold, 80);
+        assert_eq!(d.time_window_hours, 1.0);
+        assert_eq!(d.min_group_size, 2);
+        assert_eq!(d.theme, Theme::System);
+        let j = serde_json::to_string(&d).unwrap();
+        assert!(j.contains("\"similarityThreshold\":80"));
+        assert!(j.contains("\"timeWindowHours\":1.0"));
+        assert!(j.contains("\"theme\":\"system\""));
+        // round-trips through serde
+        let back: AppSettings = serde_json::from_str(&j).unwrap();
+        assert_eq!(back, d);
     }
 
     #[test]
