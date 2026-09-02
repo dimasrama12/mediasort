@@ -17,6 +17,8 @@ export function Toolbar() {
   const groupMode = useAppStore((s) => s.groupMode);
   const applyGroups = useAppStore((s) => s.applyGroups);
   const clearGroups = useAppStore((s) => s.clearGroups);
+  const query = useAppStore((s) => s.query);
+  const setQuery = useAppStore((s) => s.setQuery);
   const [grouping, setGrouping] = useState(false);
 
   async function onScan() {
@@ -93,7 +95,16 @@ export function Toolbar() {
         )}
       </div>
 
-      <span className="text-sm text-neutral-400 ml-auto">
+      <input
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search name…"
+        aria-label="Search files by name"
+        className="ml-auto w-44 px-2 py-1 rounded bg-neutral-800 text-sm outline-none placeholder:text-neutral-500"
+      />
+
+      <span className="text-sm text-neutral-400">
         {scanning ? `${files.length} found…` : `${scanned} items`}
       </span>
     </header>

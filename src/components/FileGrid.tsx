@@ -1,14 +1,16 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useAppStore } from "../store/useAppStore";
 import { FileCard } from "./FileCard";
 import { nextFocusIndex } from "../lib/gridNav";
+import { filterFiles } from "../lib/filter";
 import { moveFiles, trashFiles } from "../lib/commands";
 
 const CARD = 160; // px cell size
 
 export function FileGrid() {
   const files = useAppStore((s) => s.files);
+  const query = useAppStore((s) => s.query);
   const focusedId = useAppStore((s) => s.focusedId);
   const setFocus = useAppStore((s) => s.setFocus);
   const openPreview = useAppStore((s) => s.openPreview);
@@ -21,8 +23,13 @@ export function FileGrid() {
   const toggleTrash = useAppStore((s) => s.toggleTrash);
   const closeTrash = useAppStore((s) => s.closeTrash);
   const parentRef = useRef<HTMLDivElement>(null);
+
+  // The visible set is what the grid renders and what keyboard nav operates on, so the
+  // two always agree. Search never mutates the store's `files`.
+  const visible = useMemo(() => filterFiles(files, query), [files, query]);
+
   const columns = Math.max(1, Math.floor((parentRef.current?.clientWidth ?? 1200) / CARD));
-  const rows = Math.ceil(files.length / columns);
+  const rows = Math.ceil(visible.length / columns);
 
   const rowVirtualizer = useVirtualizer({
     count: rows,
@@ -31,21 +38,33 @@ export function FileGrid() {
     overscan: 6,
   });
 
-  // Default focus to the first file once results exist.
+  // Keep focus on a visible file: default to the first once results exist, and re-home it
+  // when the current filter hides the focused file.
   useEffect(() => {
-    if (files.length > 0 && useAppStore.getState().focusedId == null) {
-      setFocus(files[0].id);
+    const fid = useAppStore.getState().focusedId;
+    if (visible.length > 0 && (fid == null || !visible.some((f) => f.id === fid))) {
+      setFocus(visible[0].id);
     }
-  }, [files, setFocus]);
+  }, [visible, setFocus]);
 
-  // Keyboard: focus nav (#5a) + move-on-keypress / undo (#5b). Inert while the
-  // Preview owns the keyboard, and ignored while typing in a form field.
+  // Keyboard: focus nav (#5a) + move-on-keypress / undo (#5b) + trash (#6). Inert while the
+  // Preview owns the keyboard, and ignored while typing in a form field (search box included).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-      const { files, focusedId, previewId, folders, moveHistory, selectedIds, trashOpen } =
-        useAppStore.getState();
+      const {
+        files: allFiles,
+        focusedId,
+        previewId,
+        folders,
+        moveHistory,
+        selectedIds,
+        trashOpen,
+        query,
+      } = useAppStore.getState();
+      // Operate on the visible (filtered) set, exactly what's on screen.
+      const files = filterFiles(allFiles, query);
 
       // Trash panel owns the keyboard while open: T/Esc close it, everything else inert.
       if (trashOpen) {
@@ -94,7 +113,7 @@ export function FileGrid() {
         const folder = folders.find((f) => f.shortcut === Number(e.key));
         if (!folder) return;
         if (selectedIds.length > 0) {
-          const sel = files.filter((f) => selectedIds.includes(f.id)); // grid order
+          const sel = files.filter((f) => selectedIds.includes(f.id)); // visible grid order
           if (sel.length > 0) {
             e.preventDefault();
             const ids = sel.map((f) => f.id);
@@ -105,10 +124,11 @@ export function FileGrid() {
           }
           return;
         }
-        const index = files.findIndex((f) => f.id === focusedId);
+        // Single move uses the index into the full store array (completeMove is index-based).
+        const index = allFiles.findIndex((f) => f.id === focusedId);
         if (index >= 0) {
           e.preventDefault();
-          const path = files[index].path;
+          const path = allFiles[index].path;
           void moveFiles([path], folder.path)
             .then(([newPath]) => completeMove(index, folder.id, newPath))
             .catch(() => {});
@@ -141,7 +161,7 @@ export function FileGrid() {
         return;
       }
 
-      // Arrow / vim focus movement.
+      // Arrow / vim focus movement (within the visible set).
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "j", "k"].includes(e.key)) {
         const cols = Math.max(1, Math.floor((parentRef.current?.clientWidth ?? 0) / CARD));
         const cur = files.findIndex((f) => f.id === focusedId);
@@ -167,7 +187,7 @@ export function FileGrid() {
   // Keep the focused cell in view.
   useEffect(() => {
     if (focusedId == null) return;
-    const idx = files.findIndex((f) => f.id === focusedId);
+    const idx = visible.findIndex((f) => f.id === focusedId);
     if (idx < 0) return;
     const cols = Math.max(1, Math.floor((parentRef.current?.clientWidth ?? 0) / CARD));
     try {
@@ -175,14 +195,14 @@ export function FileGrid() {
     } catch {
       // virtualizer not laid out yet (e.g. jsdom) — scroll is best-effort
     }
-  }, [focusedId, files, rowVirtualizer]);
+  }, [focusedId, visible, rowVirtualizer]);
 
   return (
     <div ref={parentRef} className="flex-1 overflow-auto">
       <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
         {rowVirtualizer.getVirtualItems().map((vr) => {
           const start = vr.index * columns;
-          const cells = files.slice(start, start + columns);
+          const cells = visible.slice(start, start + columns);
           return (
             <div
               key={vr.key}

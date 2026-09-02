@@ -35,7 +35,7 @@ const fam = { id: "fam", name: "fam", path: "C:/base/fam", shortcut: 1, fileCoun
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useAppStore.setState({ files: [], focusedId: null, previewId: null, folders: [], moveHistory: [], selectedIds: [], trashOpen: false });
+  useAppStore.setState({ files: [], focusedId: null, previewId: null, folders: [], moveHistory: [], selectedIds: [], trashOpen: false, query: "" });
 });
 afterEach(cleanup);
 
@@ -151,4 +151,19 @@ test("digits are inert while the preview is open", () => {
   render(<FileGrid />);
   fireEvent.keyDown(window, { key: "1" });
   expect(moveFiles).not.toHaveBeenCalled();
+});
+
+test("search narrows keyboard navigation to the visible files", () => {
+  useAppStore.setState({
+    files: [
+      { ...mk("a"), name: "keep-1.jpg" },
+      { ...mk("b"), name: "skip.jpg" },
+      { ...mk("c"), name: "keep-2.jpg" },
+    ],
+    focusedId: "a",
+    query: "keep",
+  });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "ArrowRight" });
+  expect(useAppStore.getState().focusedId).toBe("c"); // skipped the hidden "skip.jpg"
 });
