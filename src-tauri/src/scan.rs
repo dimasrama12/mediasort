@@ -12,6 +12,48 @@ pub fn is_supported(ext: &str) -> bool {
     FileType::from_extension(ext).is_some()
 }
 
+/// Unix seconds for a civil UTC date-time (Howard Hinnant's `days_from_civil`).
+fn civil_to_unix(y: i64, m: i64, d: i64, hh: i64, mm: i64, ss: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400; // [0, 399]
+    let mp = if m > 2 { m - 3 } else { m + 9 }; // Mar=0..Feb=11
+    let doy = (153 * mp + 2) / 5 + d - 1; // [0, 365]
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy; // [0, 146096]
+    let days = era * 146097 + doe - 719468;
+    days * 86400 + hh * 3600 + mm * 60 + ss
+}
+
+/// Parse an EXIF `DateTimeOriginal` string (`"YYYY:MM:DD HH:MM:SS"`, seconds optional)
+/// into unix seconds (treated as UTC — EXIF carries no zone). `None` if malformed.
+fn parse_exif_datetime(s: &str) -> Option<i64> {
+    let (date, time) = s.trim().split_once(' ')?;
+    let mut d = date.split(':');
+    let (y, mo, da) = (d.next()?.parse().ok()?, d.next()?.parse().ok()?, d.next()?.parse().ok()?);
+    let mut t = time.split(':');
+    let hh: i64 = t.next()?.parse().ok()?;
+    let mm: i64 = t.next()?.parse().ok()?;
+    let ss: i64 = t.next().unwrap_or("0").parse().ok()?;
+    if !(1..=12).contains(&mo) || !(1..=31).contains(&da) {
+        return None;
+    }
+    Some(civil_to_unix(y, mo, da, hh, mm, ss))
+}
+
+/// Read EXIF `DateTimeOriginal` for an image, as unix seconds. `None` if the file has no
+/// readable EXIF (most PNG/WebP, videos, corrupt files) — callers fall back to mtime.
+fn read_exif_datetime(path: &Path) -> Option<i64> {
+    let file = std::fs::File::open(path).ok()?;
+    let mut reader = std::io::BufReader::new(file);
+    let exif = exif::Reader::new().read_from_container(&mut reader).ok()?;
+    let field = exif.get_field(exif::Tag::DateTimeOriginal, exif::In::PRIMARY)?;
+    let raw = match &field.value {
+        exif::Value::Ascii(vals) => vals.first().map(|b| String::from_utf8_lossy(b).into_owned()),
+        _ => None,
+    }?;
+    parse_exif_datetime(&raw)
+}
+
 /// Build a `FileInfo` for a single path, or `None` if unsupported / unreadable.
 pub fn build_file_info(path: &Path) -> Option<FileInfo> {
     let ext = path.extension()?.to_string_lossy().to_string();
@@ -23,6 +65,12 @@ pub fn build_file_info(path: &Path) -> Option<FileInfo> {
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
+    // Capture time from EXIF for images; temporal grouping prefers it over mtime.
+    let date_taken = if file_type == FileType::Image {
+        read_exif_datetime(path)
+    } else {
+        None
+    };
     let path_str = path.to_string_lossy().to_string();
     Some(FileInfo {
         id: normalize_path(&path_str),
@@ -31,7 +79,7 @@ pub fn build_file_info(path: &Path) -> Option<FileInfo> {
         extension: ext.to_lowercase(),
         size: meta.len(),
         modified_at,
-        date_taken: None, // EXIF DateTimeOriginal wired in the grouping slice
+        date_taken,
         file_type,
         group_id: None,
     })
@@ -135,6 +183,33 @@ pub fn cancel_scan(state: State<'_, ScanState>) {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn parse_exif_datetime_known_epochs_and_rejects_bad() {
+        assert_eq!(parse_exif_datetime("1970:01:01 00:00:00"), Some(0));
+        assert_eq!(parse_exif_datetime("2021:01:01 00:00:00"), Some(1_609_459_200));
+        assert_eq!(parse_exif_datetime("2021:01:01 01:01:01"), Some(1_609_459_200 + 3661));
+        assert_eq!(parse_exif_datetime("garbage"), None);
+        assert_eq!(parse_exif_datetime("2021:13:01 00:00:00"), None); // bad month
+        assert_eq!(parse_exif_datetime("2021:06:15 12:30"), Some(civil_to_unix(2021, 6, 15, 12, 30, 0)));
+    }
+
+    #[test]
+    fn read_exif_datetime_none_for_non_exif_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("x.jpg");
+        std::fs::write(&p, b"not a real jpeg").unwrap();
+        assert!(read_exif_datetime(&p).is_none());
+    }
+
+    #[test]
+    fn build_file_info_has_no_date_taken_without_exif() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("a.jpg");
+        std::fs::write(&p, b"x").unwrap();
+        let fi = build_file_info(&p).unwrap();
+        assert_eq!(fi.date_taken, None); // falls back to mtime in temporal grouping
+    }
 
     #[test]
     fn filters_to_supported_media_recursively() {
