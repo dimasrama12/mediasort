@@ -1,1 +1,32 @@
 @import "tailwindcss";
+
+/* Theme tokens — dark is the default (:root); `.light` on <html> overrides.
+   Surfaces reference these via bg-[var(--…)] etc.; accent colors stay literal. */
+:root {
+  --bg: #0a0a0a;
+  --panel: #171717;
+  --elevated: #262626;
+  --elevated-hover: #404040;
+  --border: #262626;
+  --text: #e5e5e5;
+  --muted: #737373;
+  color-scheme: dark;
+}
+
+:root.light {
+  --bg: #ffffff;
+  --panel: #f4f4f5;
+  --elevated: #e4e4e7;
+  --elevated-hover: #d4d4d8;
+  --border: #d4d4d4;
+  --text: #18181b;
+  --muted: #6b7280;
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  background-color: var(--bg);
+  color: var(--text);
+}
