@@ -1,3 +1,5 @@
+mod fileops;
+mod folders;
 mod model;
 mod paths;
 mod scan;
@@ -17,6 +19,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(scan::ScanState::default())
+        .manage(folders::FolderState::default())
         .setup(|app| {
             let cache_dir = app
                 .path()
@@ -32,7 +35,10 @@ pub fn run() {
             scan::scan_folders,
             scan::cancel_scan,
             thumbnail::ensure_thumbnail,
-            thumbnail::clear_thumbnail_cache
+            thumbnail::clear_thumbnail_cache,
+            folders::create_folder,
+            folders::list_target_folders,
+            fileops::move_files
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
