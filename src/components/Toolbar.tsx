@@ -2,11 +2,12 @@ import { pickFolders, scanFolders, cancelScan } from "../lib/commands";
 import { useAppStore } from "../store/useAppStore";
 
 export function Toolbar() {
-  const { scanning, files, scanned, startScan } = useAppStore();
+  const { scanning, files, scanned, startScan, setRoots } = useAppStore();
 
   async function onScan() {
     const dirs = await pickFolders();
     if (!dirs) return;
+    setRoots(dirs);
     startScan();
     await scanFolders(dirs);
   }
