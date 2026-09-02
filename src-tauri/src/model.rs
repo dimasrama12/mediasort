@@ -45,6 +45,24 @@ pub struct FolderInfo {
     pub file_count: u32, // files moved into it this session
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashItem {
+    pub id: String,
+    pub original_path: String,
+    pub trash_path: String,
+    pub name: String,
+    pub size: u64,
+    pub deleted_at: i64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashStats {
+    pub count: u32,
+    pub total_size: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -88,5 +106,24 @@ mod tests {
         let j = serde_json::to_string(&f).unwrap();
         assert!(j.contains("\"fileCount\":3"));
         assert!(j.contains("\"shortcut\":1"));
+    }
+
+    #[test]
+    fn trashitem_and_stats_serialize_camelcase() {
+        let it = TrashItem {
+            id: "trash_1_b.jpg".into(),
+            original_path: "D:\\a\\b.jpg".into(),
+            trash_path: "D:\\app\\trash\\trash_1_b.jpg".into(),
+            name: "b.jpg".into(),
+            size: 10,
+            deleted_at: 123,
+        };
+        let j = serde_json::to_string(&it).unwrap();
+        assert!(j.contains("\"originalPath\":"));
+        assert!(j.contains("\"trashPath\":"));
+        assert!(j.contains("\"deletedAt\":123"));
+        let s = TrashStats { count: 2, total_size: 20 };
+        let js = serde_json::to_string(&s).unwrap();
+        assert!(js.contains("\"totalSize\":20"));
     }
 }
