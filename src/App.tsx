@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Toolbar } from "./components/Toolbar";
+import { Sidebar } from "./components/Sidebar";
 import { FileGrid } from "./components/FileGrid";
 import { Preview } from "./components/Preview";
 import { onScanFile, onScanDone } from "./lib/events";
@@ -21,7 +22,10 @@ function App() {
   return (
     <main className="h-screen flex flex-col bg-neutral-950 text-neutral-100">
       <Toolbar />
-      <FileGrid />
+      <div className="flex flex-1 min-h-0">
+        <Sidebar />
+        <FileGrid />
+      </div>
       <Preview />
     </main>
   );
