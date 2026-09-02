@@ -2,14 +2,18 @@ import type { FileInfo } from "../lib/types";
 import { useThumbnail } from "../lib/useThumbnail";
 import { useAppStore } from "../store/useAppStore";
 
-export function FileCard({ file }: { file: FileInfo }) {
+export function FileCard({ file, focused = false }: { file: FileInfo; focused?: boolean }) {
   const { url, status } = useThumbnail(file);
+  const setFocus = useAppStore((s) => s.setFocus);
   const openPreview = useAppStore((s) => s.openPreview);
   return (
     <button
       type="button"
-      onClick={() => openPreview(file.id)}
-      className="w-[152px] h-[150px] rounded bg-neutral-800 border border-neutral-700 overflow-hidden relative flex items-end text-left"
+      onClick={() => setFocus(file.id)}
+      onDoubleClick={() => openPreview(file.id)}
+      className={`w-[152px] h-[150px] rounded bg-neutral-800 border overflow-hidden relative flex items-end text-left ${
+        focused ? "border-blue-500 ring-2 ring-blue-500" : "border-neutral-700"
+      }`}
       title={file.path}
     >
       {status === "ready" && url && (
