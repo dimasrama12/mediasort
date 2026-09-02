@@ -39,6 +39,14 @@ export function FileCard({
       className={`w-[152px] h-[150px] rounded ${bg} border overflow-hidden relative flex items-end text-left ${border}`}
       title={file.path}
     >
+      {file.groupId && (
+        <span
+          data-testid="group-badge"
+          title={`Group ${file.groupId}`}
+          aria-label={`In group ${file.groupId}`}
+          className="absolute top-1 left-1 z-20 w-2.5 h-2.5 rounded-full bg-amber-400 ring-1 ring-black/50"
+        />
+      )}
       {status === "ready" && url && (
         <img src={url} alt={file.name} className="absolute inset-0 w-full h-full object-cover" />
       )}

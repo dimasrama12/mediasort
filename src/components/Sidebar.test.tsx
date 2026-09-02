@@ -18,7 +18,7 @@ vi.mock("../lib/commands", () => ({
 import { Sidebar } from "./Sidebar";
 import { createFolder, renameFolder, deleteFolder } from "../lib/commands";
 import { useAppStore } from "../store/useAppStore";
-import type { FolderInfo } from "../lib/types";
+import type { FileGroup, FolderInfo } from "../lib/types";
 
 const mkFolder = (id: string, shortcut: number): FolderInfo => ({
   id,
@@ -72,4 +72,21 @@ test("double-clicking a name renames it via command", async () => {
   fireEvent.keyDown(input, { key: "Enter" });
   await waitFor(() => expect(renameFolder).toHaveBeenCalledWith("fam", "Family"));
   await waitFor(() => expect(useAppStore.getState().folders[0].name).toBe("Family"));
+});
+
+test("renders the Groups section and focuses a group's first file on click", () => {
+  const g: FileGroup = {
+    id: "visual-1",
+    name: "Group 1",
+    fileIds: ["a", "b"],
+    similarity: 92,
+    timeSpan: null,
+    groupType: "visual",
+  };
+  useAppStore.setState({ folders: [], roots: ["C:/base"], groups: [g], focusedId: null });
+  render(<Sidebar />);
+  expect(screen.getByText("Group 1")).toBeTruthy();
+  expect(screen.getByText("Groups (1)")).toBeTruthy();
+  fireEvent.click(screen.getByText("Group 1"));
+  expect(useAppStore.getState().focusedId).toBe("a");
 });

@@ -65,3 +65,10 @@ test("a selected card renders a selected style", () => {
   render(<FileCard file={file} selected />);
   expect(screen.getByRole("button").className).toContain("sky");
 });
+
+test("renders a group badge only when the file belongs to a group", () => {
+  const { rerender } = render(<FileCard file={file} />);
+  expect(screen.queryByTestId("group-badge")).toBeNull();
+  rerender(<FileCard file={{ ...file, groupId: "visual-1" }} />);
+  expect(screen.getByTestId("group-badge")).toBeTruthy();
+});
