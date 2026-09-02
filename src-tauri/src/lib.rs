@@ -38,6 +38,8 @@ pub fn run() {
             thumbnail::clear_thumbnail_cache,
             folders::create_folder,
             folders::list_target_folders,
+            folders::rename_folder,
+            folders::delete_folder,
             fileops::move_files
         ])
         .run(tauri::generate_context!())
