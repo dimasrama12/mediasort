@@ -4,6 +4,7 @@ mod grouping;
 mod model;
 mod paths;
 mod scan;
+mod settings;
 mod thumbnail;
 mod trash;
 
@@ -38,6 +39,10 @@ pub fn run() {
                 .join("trash");
             std::fs::create_dir_all(&trash_dir).ok();
             app.manage(trash::TrashState::new(trash_dir));
+
+            let app_data = app.path().app_data_dir().expect("resolve app_data_dir");
+            std::fs::create_dir_all(&app_data).ok();
+            app.manage(settings::SettingsState::new(app_data.join("settings.json")));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -58,7 +63,10 @@ pub fn run() {
             trash::list_trash,
             trash::restore_from_trash,
             trash::trash_stats,
-            trash::empty_trash
+            trash::empty_trash,
+            settings::get_settings,
+            settings::save_settings,
+            settings::reset_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
