@@ -7,6 +7,7 @@ import {
   groupTemporal,
 } from "../lib/commands";
 import { useAppStore } from "../store/useAppStore";
+import { undo, redo } from "../lib/history";
 
 // Defaults from DESIGN §4 AppSettings until the settings slice wires them up.
 const SIMILARITY_THRESHOLD = 80;
@@ -20,6 +21,8 @@ export function Toolbar() {
   const query = useAppStore((s) => s.query);
   const setQuery = useAppStore((s) => s.setQuery);
   const openRename = useAppStore((s) => s.openRename);
+  const undoStack = useAppStore((s) => s.undoStack);
+  const redoStack = useAppStore((s) => s.redoStack);
   const [grouping, setGrouping] = useState(false);
 
   async function onScan() {
@@ -63,6 +66,27 @@ export function Toolbar() {
           Cancel
         </button>
       )}
+
+      <div className="flex items-center gap-1 pl-3 ml-1 border-l border-neutral-800">
+        <button
+          onClick={() => void undo().catch(() => {})}
+          disabled={undoStack.length === 0}
+          aria-label="Undo"
+          title="Undo (Ctrl+Z)"
+          className="px-2 py-1 rounded text-sm bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40"
+        >
+          ↶ Undo
+        </button>
+        <button
+          onClick={() => void redo().catch(() => {})}
+          disabled={redoStack.length === 0}
+          aria-label="Redo"
+          title="Redo (Ctrl+Y)"
+          className="px-2 py-1 rounded text-sm bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40"
+        >
+          ↷ Redo
+        </button>
+      </div>
 
       <div className="flex items-center gap-1 pl-3 ml-1 border-l border-neutral-800">
         <span className="text-xs text-neutral-500">Group:</span>

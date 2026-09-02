@@ -4,6 +4,7 @@ import { useAppStore } from "../store/useAppStore";
 import { FileCard } from "./FileCard";
 import { nextFocusIndex } from "../lib/gridNav";
 import { filterFiles } from "../lib/filter";
+import { undo, redo } from "../lib/history";
 import { moveFiles, trashFiles } from "../lib/commands";
 
 const CARD = 160; // px cell size
@@ -16,7 +17,6 @@ export function FileGrid() {
   const openPreview = useAppStore((s) => s.openPreview);
   const completeMove = useAppStore((s) => s.completeMove);
   const completeMoveMany = useAppStore((s) => s.completeMoveMany);
-  const completeUndo = useAppStore((s) => s.completeUndo);
   const clearSelection = useAppStore((s) => s.clearSelection);
   const selectedIds = useAppStore((s) => s.selectedIds);
   const completeTrash = useAppStore((s) => s.completeTrash);
@@ -59,7 +59,6 @@ export function FileGrid() {
         focusedId,
         previewId,
         folders,
-        moveHistory,
         selectedIds,
         trashOpen,
         renameOpen,
@@ -83,15 +82,18 @@ export function FileGrid() {
 
       if (previewId != null) return; // Preview owns Esc / ←/→
 
-      // Undo the last move (Ctrl+Z) — works even if the grid just emptied.
-      if (e.ctrlKey && (e.key === "z" || e.key === "Z")) {
-        const top = moveHistory[moveHistory.length - 1];
-        if (top) {
-          e.preventDefault();
-          void moveFiles([top.toPath], top.fromDir)
-            .then(([backPath]) => completeUndo(backPath))
-            .catch(() => {});
-        }
+      // Undo (Ctrl+Z) / redo (Ctrl+Y or Ctrl+Shift+Z) — work even on an empty grid.
+      if (e.ctrlKey && !e.shiftKey && (e.key === "z" || e.key === "Z")) {
+        e.preventDefault();
+        void undo().catch(() => {});
+        return;
+      }
+      if (
+        e.ctrlKey &&
+        ((e.key === "y" || e.key === "Y") || (e.shiftKey && (e.key === "z" || e.key === "Z")))
+      ) {
+        e.preventDefault();
+        void redo().catch(() => {});
         return;
       }
 
@@ -190,7 +192,6 @@ export function FileGrid() {
     setFocus,
     openPreview,
     completeMove,
-    completeUndo,
     completeMoveMany,
     clearSelection,
     completeTrash,

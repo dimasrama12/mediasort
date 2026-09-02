@@ -35,7 +35,7 @@ const fam = { id: "fam", name: "fam", path: "C:/base/fam", shortcut: 1, fileCoun
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useAppStore.setState({ files: [], focusedId: null, previewId: null, folders: [], moveHistory: [], selectedIds: [], trashOpen: false, renameOpen: false, query: "" });
+  useAppStore.setState({ files: [], focusedId: null, previewId: null, folders: [], undoStack: [], redoStack: [], selectedIds: [], trashOpen: false, renameOpen: false, query: "" });
 });
 afterEach(cleanup);
 
@@ -94,6 +94,19 @@ test("Ctrl+Z moves the last-moved file back", async () => {
   fireEvent.keyDown(window, { key: "z", ctrlKey: true });
   await waitFor(() => expect(useAppStore.getState().files.map((f) => f.id)).toEqual(["a", "b"]));
   expect(useAppStore.getState().focusedId).toBe("a");
+});
+
+test("Ctrl+Y redoes an undone move", async () => {
+  useAppStore.setState({ files: [mk("a"), mk("b")], folders: [fam], focusedId: "a" });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "1" });
+  await waitFor(() => expect(useAppStore.getState().files.map((f) => f.id)).toEqual(["b"]));
+  fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+  await waitFor(() => expect(useAppStore.getState().files.map((f) => f.id)).toEqual(["a", "b"]));
+  fireEvent.keyDown(window, { key: "y", ctrlKey: true });
+  await waitFor(() => expect(useAppStore.getState().files.map((f) => f.id)).toEqual(["b"]));
+  expect(useAppStore.getState().redoStack).toHaveLength(0);
+  expect(useAppStore.getState().undoStack).toHaveLength(1);
 });
 
 test("with a selection, a mapped digit moves the whole selection (grid order) and clears it", async () => {
