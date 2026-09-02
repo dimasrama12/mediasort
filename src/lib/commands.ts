@@ -1,6 +1,6 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { FolderInfo, TrashItem, TrashStats } from "./types";
+import type { FileGroup, FileInfo, FolderInfo, TrashItem, TrashStats } from "./types";
 
 /** Start a background scan of the given folders. Results arrive via scan-* events. */
 export const scanFolders = (paths: string[]) => invoke<void>("scan_folders", { paths });
@@ -40,6 +40,14 @@ export const renameFolder = (id: string, name: string): Promise<FolderInfo[]> =>
 /** Remove a target folder (renumbers shortcuts); returns the updated 1–9 list. */
 export const deleteFolder = (id: string): Promise<FolderInfo[]> =>
   invoke<FolderInfo[]>("delete_folder", { id });
+
+/** Group images by visual similarity (dHash ≥ threshold). Emits `group-progress`. */
+export const groupVisual = (files: FileInfo[], threshold: number): Promise<FileGroup[]> =>
+  invoke<FileGroup[]>("group_visual", { files, threshold });
+
+/** Group all files into temporal bursts within `hours` (EXIF dateTaken, else mtime). */
+export const groupTemporal = (files: FileInfo[], hours: number): Promise<FileGroup[]> =>
+  invoke<FileGroup[]>("group_temporal", { files, hours });
 
 /** Move files to the app trash; returns the created trash items. */
 export const trashFiles = (paths: string[]): Promise<TrashItem[]> =>

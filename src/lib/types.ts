@@ -12,6 +12,17 @@ export interface FileInfo {
   groupId: string | null;
 }
 
+export type GroupType = "visual" | "temporal";
+
+export interface FileGroup {
+  id: string;
+  name: string;
+  fileIds: string[];
+  similarity: number; // 0..100 (visual only)
+  timeSpan: string | null; // "start – end" (temporal only)
+  groupType: GroupType;
+}
+
 export interface FolderInfo {
   id: string;
   name: string;
