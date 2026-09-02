@@ -5,6 +5,8 @@ import type {
   FileGroup,
   FileInfo,
   FolderInfo,
+  Project,
+  ProjectSummary,
   TrashItem,
   TrashStats,
 } from "./types";
@@ -90,3 +92,18 @@ export const saveSettings = (settings: AppSettings): Promise<void> =>
 
 /** Reset settings to defaults on disk; returns the defaults. */
 export const resetSettings = (): Promise<AppSettings> => invoke<AppSettings>("reset_settings");
+
+/** Save a session snapshot (roots + files + folders + groups). */
+export const saveProject = (project: Project): Promise<void> =>
+  invoke<void>("save_project", { project });
+
+/** Load a full project by id. */
+export const loadProject = (id: string): Promise<Project> => invoke<Project>("load_project", { id });
+
+/** List saved projects (summaries, newest first). */
+export const listProjects = (): Promise<ProjectSummary[]> =>
+  invoke<ProjectSummary[]>("list_projects");
+
+/** Delete a saved project by id. */
+export const deleteProject = (id: string): Promise<void> =>
+  invoke<void>("delete_project", { id });

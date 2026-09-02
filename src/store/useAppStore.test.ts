@@ -131,6 +131,36 @@ test("setSettings replaces settings; open/closeSettings flip the panel", () => {
   expect(useAppStore.getState().settings.similarityThreshold).toBe(55);
 });
 
+test("loadProjectData hydrates the session and resets transient state", () => {
+  useAppStore.setState({
+    files: [mk("old")],
+    selectedIds: ["old"],
+    previewId: "old",
+    projectsOpen: true,
+    undoStack: [{ kind: "move", folderId: "x", moved: [{ file: mk("old"), fromIndex: 0, toPath: "y" }] }],
+  });
+  useAppStore.getState().loadProjectData({
+    id: "p1",
+    name: "Trip",
+    savedAt: 1,
+    roots: ["C:/x"],
+    files: [mk("a"), mk("b")],
+    folders: [mkFolder("fam", 1)],
+    groups: [{ id: "visual-1", name: "G", fileIds: ["a"], similarity: 90, timeSpan: null, groupType: "visual" }],
+  });
+  const s = useAppStore.getState();
+  expect(s.roots).toEqual(["C:/x"]);
+  expect(s.files.map((f) => f.id)).toEqual(["a", "b"]);
+  expect(s.folders[0].id).toBe("fam");
+  expect(s.groups).toHaveLength(1);
+  expect(s.groupMode).toBe("visual");
+  expect(s.focusedId).toBe("a");
+  expect(s.selectedIds).toEqual([]);
+  expect(s.undoStack).toEqual([]);
+  expect(s.previewId).toBeNull();
+  expect(s.projectsOpen).toBe(false);
+});
+
 test("re-applying groups reassigns membership (old indicators drop off)", () => {
   useAppStore.setState({ files: [mk("a"), mk("b"), mk("c")], groups: [], groupMode: "none" });
   useAppStore.getState().applyGroups([grp("visual-1", ["a", "b"], "visual")], "visual");

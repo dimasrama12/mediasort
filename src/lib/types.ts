@@ -45,6 +45,23 @@ export interface TrashStats {
   totalSize: number;
 }
 
+export interface Project {
+  id: string;
+  name: string;
+  savedAt: number;
+  roots: string[];
+  files: FileInfo[];
+  folders: FolderInfo[];
+  groups: FileGroup[];
+}
+
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  savedAt: number;
+  fileCount: number;
+}
+
 export type Theme = "light" | "dark" | "system";
 
 export interface AppSettings {

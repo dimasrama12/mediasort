@@ -1,5 +1,12 @@
 import { create } from "zustand";
-import type { AppSettings, FileGroup, FileInfo, FolderInfo, TrashItem } from "../lib/types";
+import type {
+  AppSettings,
+  FileGroup,
+  FileInfo,
+  FolderInfo,
+  Project,
+  TrashItem,
+} from "../lib/types";
 import { DEFAULT_SETTINGS } from "../lib/types";
 
 export type GroupMode = "none" | "visual" | "temporal";
@@ -32,6 +39,7 @@ interface AppState {
   renameOpen: boolean;
   settings: AppSettings;
   settingsOpen: boolean;
+  projectsOpen: boolean;
   startScan: () => void;
   addFiles: (batch: FileInfo[]) => void;
   finishScan: (total: number) => void;
@@ -66,6 +74,9 @@ interface AppState {
   setSettings: (settings: AppSettings) => void;
   openSettings: () => void;
   closeSettings: () => void;
+  openProjects: () => void;
+  closeProjects: () => void;
+  loadProjectData: (project: Project) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -87,6 +98,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   renameOpen: false,
   settings: DEFAULT_SETTINGS,
   settingsOpen: false,
+  projectsOpen: false,
   startScan: () =>
     set({
       scanning: true,
@@ -123,6 +135,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       query: "",
       renameOpen: false,
       settingsOpen: false,
+      projectsOpen: false,
     }),
   openPreview: (id) => set({ previewId: id }),
   closePreview: () => set({ previewId: null }),
@@ -312,4 +325,23 @@ export const useAppStore = create<AppState>((set, get) => ({
   setSettings: (settings) => set({ settings }),
   openSettings: () => set({ settingsOpen: true }),
   closeSettings: () => set({ settingsOpen: false }),
+  openProjects: () => set({ projectsOpen: true }),
+  closeProjects: () => set({ projectsOpen: false }),
+  loadProjectData: (project) =>
+    set({
+      roots: project.roots,
+      files: project.files,
+      folders: project.folders,
+      groups: project.groups,
+      groupMode: project.groups.length > 0 ? project.groups[0].groupType : "none",
+      scanned: project.files.length,
+      scanning: false,
+      focusedId: project.files[0]?.id ?? null,
+      selectedIds: [],
+      previewId: null,
+      undoStack: [],
+      redoStack: [],
+      query: "",
+      projectsOpen: false,
+    }),
 }));
