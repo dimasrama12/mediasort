@@ -20,6 +20,7 @@ interface AppState {
   scanned: number;
   previewId: string | null;
   focusedId: string | null;
+  selectedIds: string[];
   folders: FolderInfo[];
   roots: string[];
   moveHistory: MoveRecord[];
@@ -32,6 +33,10 @@ interface AppState {
   previewNext: () => void;
   previewPrev: () => void;
   setFocus: (id: string | null) => void;
+  selectOnly: (id: string) => void;
+  toggleSelected: (id: string) => void;
+  selectRangeTo: (id: string) => void;
+  clearSelection: () => void;
   setRoots: (roots: string[]) => void;
   setFolders: (folders: FolderInfo[]) => void;
   upsertFolder: (f: FolderInfo) => void;
@@ -45,6 +50,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   scanned: 0,
   previewId: null,
   focusedId: null,
+  selectedIds: [],
   folders: [],
   roots: [],
   moveHistory: [],
@@ -55,6 +61,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       scanned: 0,
       previewId: null,
       focusedId: null,
+      selectedIds: [],
       folders: [],
       moveHistory: [],
     }),
@@ -67,6 +74,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       scanned: 0,
       previewId: null,
       focusedId: null,
+      selectedIds: [],
       folders: [],
       roots: [],
       moveHistory: [],
@@ -86,6 +94,27 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ previewId: files[i - 1].id });
   },
   setFocus: (id) => set({ focusedId: id }),
+  selectOnly: (id) => set({ selectedIds: [id], focusedId: id }),
+  toggleSelected: (id) =>
+    set((s) => ({
+      selectedIds: s.selectedIds.includes(id)
+        ? s.selectedIds.filter((x) => x !== id)
+        : [...s.selectedIds, id],
+      focusedId: id,
+    })),
+  selectRangeTo: (id) =>
+    set((s) => {
+      const anchorId = s.focusedId ?? id;
+      const ai = s.files.findIndex((f) => f.id === anchorId);
+      const bi = s.files.findIndex((f) => f.id === id);
+      if (ai < 0 || bi < 0) return {};
+      const [lo, hi] = ai <= bi ? [ai, bi] : [bi, ai];
+      return {
+        selectedIds: s.files.slice(lo, hi + 1).map((f) => f.id),
+        focusedId: anchorId,
+      };
+    }),
+  clearSelection: () => set({ selectedIds: [] }),
   setRoots: (roots) => set({ roots }),
   setFolders: (folders) => set({ folders }),
   upsertFolder: (f) =>

@@ -119,6 +119,46 @@ test("completeUndo re-inserts at original index, refocuses, decrements count", (
   expect(s.moveHistory).toHaveLength(0);
 });
 
+test("selectOnly sets a single-item selection and focuses it", () => {
+  useAppStore.setState({ files: [mk("a"), mk("b")], selectedIds: ["b"], focusedId: null });
+  useAppStore.getState().selectOnly("a");
+  expect(useAppStore.getState().selectedIds).toEqual(["a"]);
+  expect(useAppStore.getState().focusedId).toBe("a");
+});
+
+test("toggleSelected adds then removes an id and updates focus", () => {
+  useAppStore.setState({ files: [mk("a"), mk("b")], selectedIds: ["a"], focusedId: "a" });
+  useAppStore.getState().toggleSelected("b");
+  expect(useAppStore.getState().selectedIds).toEqual(["a", "b"]);
+  expect(useAppStore.getState().focusedId).toBe("b");
+  useAppStore.getState().toggleSelected("b");
+  expect(useAppStore.getState().selectedIds).toEqual(["a"]);
+});
+
+test("selectRangeTo yields the inclusive file-order range from the anchor (both directions)", () => {
+  useAppStore.setState({ files: [mk("a"), mk("b"), mk("c"), mk("d")], selectedIds: [], focusedId: "b" });
+  useAppStore.getState().selectRangeTo("d");
+  expect(useAppStore.getState().selectedIds).toEqual(["b", "c", "d"]);
+  expect(useAppStore.getState().focusedId).toBe("b"); // anchor unchanged
+  useAppStore.getState().selectRangeTo("a"); // extend the other way from the same anchor
+  expect(useAppStore.getState().selectedIds).toEqual(["a", "b"]);
+});
+
+test("clearSelection empties the selection", () => {
+  useAppStore.setState({ selectedIds: ["a", "b"] });
+  useAppStore.getState().clearSelection();
+  expect(useAppStore.getState().selectedIds).toEqual([]);
+});
+
+test("startScan and reset clear the selection", () => {
+  useAppStore.setState({ selectedIds: ["a"] });
+  useAppStore.getState().startScan();
+  expect(useAppStore.getState().selectedIds).toEqual([]);
+  useAppStore.setState({ selectedIds: ["b"] });
+  useAppStore.getState().reset();
+  expect(useAppStore.getState().selectedIds).toEqual([]);
+});
+
 test("upsertFolder replaces by id and stays sorted by shortcut", () => {
   useAppStore.setState({ folders: [] });
   useAppStore.getState().upsertFolder(mkFolder("b", 2));
