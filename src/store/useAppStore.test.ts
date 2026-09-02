@@ -159,6 +159,49 @@ test("startScan and reset clear the selection", () => {
   expect(useAppStore.getState().selectedIds).toEqual([]);
 });
 
+test("completeMoveMany moves all selected, records N, advances focus, clears selection", () => {
+  useAppStore.setState({
+    files: [mk("a"), mk("b"), mk("c"), mk("d"), mk("e")],
+    folders: [mkFolder("fam", 1)],
+    focusedId: "a",
+    selectedIds: ["a", "c", "e"],
+    moveHistory: [],
+  });
+  useAppStore.getState().completeMoveMany(
+    ["a", "c", "e"],
+    "fam",
+    ["C:/base/fam/a", "C:/base/fam/c", "C:/base/fam/e"],
+  );
+  const s = useAppStore.getState();
+  expect(s.files.map((f) => f.id)).toEqual(["b", "d"]);
+  expect(s.focusedId).toBe("b"); // survivor at the lowest removed slot (0)
+  expect(s.folders[0].fileCount).toBe(3);
+  expect(s.moveHistory).toHaveLength(3);
+  expect(s.selectedIds).toEqual([]);
+});
+
+test("completeMoveMany + repeated completeUndo reconstructs the original array and order", () => {
+  useAppStore.setState({
+    files: [mk("a"), mk("b"), mk("c"), mk("d"), mk("e")],
+    folders: [mkFolder("fam", 1)],
+    focusedId: "a",
+    selectedIds: ["a", "c", "e"],
+    moveHistory: [],
+  });
+  useAppStore.getState().completeMoveMany(
+    ["a", "c", "e"],
+    "fam",
+    ["C:/base/fam/a", "C:/base/fam/c", "C:/base/fam/e"],
+  );
+  useAppStore.getState().completeUndo("C:/x/a.jpg");
+  useAppStore.getState().completeUndo("C:/x/c.jpg");
+  useAppStore.getState().completeUndo("C:/x/e.jpg");
+  const s = useAppStore.getState();
+  expect(s.files.map((f) => f.id)).toEqual(["a", "b", "c", "d", "e"]);
+  expect(s.folders[0].fileCount).toBe(0);
+  expect(s.moveHistory).toEqual([]);
+});
+
 test("upsertFolder replaces by id and stays sorted by shortcut", () => {
   useAppStore.setState({ folders: [] });
   useAppStore.getState().upsertFolder(mkFolder("b", 2));

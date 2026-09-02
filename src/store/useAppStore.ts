@@ -41,6 +41,7 @@ interface AppState {
   setFolders: (folders: FolderInfo[]) => void;
   upsertFolder: (f: FolderInfo) => void;
   completeMove: (index: number, folderId: string, toPath: string) => void;
+  completeMoveMany: (ids: string[], folderId: string, toPaths: string[]) => void;
   completeUndo: (backPath: string) => void;
 }
 
@@ -141,6 +142,37 @@ export const useAppStore = create<AppState>((set, get) => ({
         fromIndex: index,
       };
       return { files, focusedId, folders, moveHistory: [...s.moveHistory, record] };
+    }),
+  completeMoveMany: (ids, folderId, toPaths) =>
+    set((s) => {
+      const records: MoveRecord[] = ids
+        .map((id, k) => {
+          const fromIndex = s.files.findIndex((f) => f.id === id);
+          const file = s.files[fromIndex];
+          return file
+            ? { file, folderId, fromDir: dirname(file.path), toPath: toPaths[k], fromIndex }
+            : null;
+        })
+        .filter((r): r is MoveRecord => r != null)
+        .sort((a, b) => a.fromIndex - b.fromIndex);
+      if (records.length === 0) return {};
+      const idSet = new Set(records.map((r) => r.file.id));
+      const files = s.files.filter((f) => !idSet.has(f.id));
+      const focusIdx = Math.min(records[0].fromIndex, files.length - 1);
+      const focusedId = focusIdx >= 0 ? files[focusIdx].id : null;
+      const folders = s.folders.map((f) =>
+        f.id === folderId ? { ...f, fileCount: f.fileCount + records.length } : f,
+      );
+      // Newest-first so per-press Ctrl+Z pops the lowest original index first,
+      // re-inserting survivors in the right slots to reconstruct the exact order.
+      const history = [...records].reverse();
+      return {
+        files,
+        focusedId,
+        folders,
+        selectedIds: [],
+        moveHistory: [...s.moveHistory, ...history],
+      };
     }),
   completeUndo: (backPath) =>
     set((s) => {
