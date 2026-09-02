@@ -92,6 +92,13 @@ test("clearGroups removes indicators and resets mode", () => {
   expect(s.files.every((f) => f.groupId === null)).toBe(true);
 });
 
+test("setQuery sets the search query and reset clears it", () => {
+  useAppStore.getState().setQuery("vac");
+  expect(useAppStore.getState().query).toBe("vac");
+  useAppStore.getState().reset();
+  expect(useAppStore.getState().query).toBe("");
+});
+
 test("re-applying groups reassigns membership (old indicators drop off)", () => {
   useAppStore.setState({ files: [mk("a"), mk("b"), mk("c")], groups: [], groupMode: "none" });
   useAppStore.getState().applyGroups([grp("visual-1", ["a", "b"], "visual")], "visual");

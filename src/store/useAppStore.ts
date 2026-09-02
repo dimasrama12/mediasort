@@ -30,6 +30,7 @@ interface AppState {
   trashItems: TrashItem[];
   groups: FileGroup[];
   groupMode: GroupMode;
+  query: string;
   startScan: () => void;
   addFiles: (batch: FileInfo[]) => void;
   finishScan: (total: number) => void;
@@ -56,6 +57,7 @@ interface AppState {
   completeTrash: (ids: string[]) => void;
   applyGroups: (groups: FileGroup[], mode: Exclude<GroupMode, "none">) => void;
   clearGroups: () => void;
+  setQuery: (query: string) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -72,6 +74,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   trashItems: [],
   groups: [],
   groupMode: "none",
+  query: "",
   startScan: () =>
     set({
       scanning: true,
@@ -84,6 +87,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       moveHistory: [],
       groups: [],
       groupMode: "none",
+      query: "",
     }),
   addFiles: (batch) => set((s) => ({ files: [...s.files, ...batch] })),
   finishScan: (total) => set({ scanning: false, scanned: total }),
@@ -102,6 +106,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       trashItems: [],
       groups: [],
       groupMode: "none",
+      query: "",
     }),
   openPreview: (id) => set({ previewId: id }),
   closePreview: () => set({ previewId: null }),
@@ -241,4 +246,5 @@ export const useAppStore = create<AppState>((set, get) => ({
       groups: [],
       groupMode: "none",
     })),
+  setQuery: (query) => set({ query }),
 }));
