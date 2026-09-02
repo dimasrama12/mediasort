@@ -51,6 +51,7 @@ pub fn run() {
             folders::rename_folder,
             folders::delete_folder,
             fileops::move_files,
+            fileops::batch_rename,
             grouping::group_visual,
             grouping::group_temporal,
             trash::trash_files,
