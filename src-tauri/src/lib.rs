@@ -1,5 +1,6 @@
 mod fileops;
 mod folders;
+mod grouping;
 mod model;
 mod paths;
 mod scan;
