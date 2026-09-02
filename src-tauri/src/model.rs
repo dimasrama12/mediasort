@@ -35,6 +35,27 @@ pub struct FileInfo {
     pub group_id: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum GroupType {
+    Visual,
+    Temporal,
+}
+
+/// A cluster of related files. `file_ids` reference `FileInfo.id` (normalized path),
+/// never embedded copies (§4). `similarity` is 0..100 (visual only); `time_span` is a
+/// human "start – end" range (temporal only).
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FileGroup {
+    pub id: String,
+    pub name: String,
+    pub file_ids: Vec<String>,
+    pub similarity: f32,
+    pub time_span: Option<String>,
+    pub group_type: GroupType,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct FolderInfo {
@@ -106,6 +127,31 @@ mod tests {
         let j = serde_json::to_string(&f).unwrap();
         assert!(j.contains("\"fileCount\":3"));
         assert!(j.contains("\"shortcut\":1"));
+    }
+
+    #[test]
+    fn filegroup_serializes_camelcase() {
+        let g = FileGroup {
+            id: "visual-1".into(),
+            name: "Group 1".into(),
+            file_ids: vec!["d:\\a\\b.jpg".into(), "d:\\a\\c.jpg".into()],
+            similarity: 92.5,
+            time_span: None,
+            group_type: GroupType::Visual,
+        };
+        let j = serde_json::to_string(&g).unwrap();
+        assert!(j.contains("\"fileIds\":[\"d:\\\\a\\\\b.jpg\""));
+        assert!(j.contains("\"groupType\":\"visual\""));
+        assert!(j.contains("\"timeSpan\":null"));
+        let t = FileGroup {
+            id: "temporal-1".into(),
+            name: "Group 1".into(),
+            file_ids: vec![],
+            similarity: 0.0,
+            time_span: Some("2021-01-01 00:00 – 2021-01-01 01:00".into()),
+            group_type: GroupType::Temporal,
+        };
+        assert!(serde_json::to_string(&t).unwrap().contains("\"groupType\":\"temporal\""));
     }
 
     #[test]
