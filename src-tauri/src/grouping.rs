@@ -4,9 +4,15 @@
 //! wired in slice #7b, hence `#![allow(dead_code)]` for now.
 #![allow(dead_code)]
 
-use crate::model::{FileGroup, GroupType};
+use crate::model::{FileGroup, FileInfo, FileType, GroupType};
 use image::imageops::FilterType;
+use serde::Serialize;
 use std::path::Path;
+use tauri::{AppHandle, Emitter};
+
+/// Default minimum group size (§4 `AppSettings.min_group_size`). Hard-coded until the
+/// settings module (slice 10); the frontend passes threshold/window, the rest defaults here.
+const MIN_GROUP_SIZE: usize = 2;
 
 /// A file reduced to its perceptual hash — the pure input to `cluster_visual`.
 pub struct Hashed {
@@ -104,7 +110,7 @@ pub fn cluster_visual(items: &[Hashed], threshold: u32, min_size: usize) -> Vec<
 /// Temporal clustering (§6.5): sort by timestamp asc, split into a new group whenever the
 /// gap to the previous file exceeds `window_hours`. Groups smaller than `min_size` are
 /// dropped. `time_span` is the group's `"start – end"` in UTC.
-pub fn group_temporal(items: &[Timed], window_hours: f64, min_size: usize) -> Vec<FileGroup> {
+pub fn cluster_temporal(items: &[Timed], window_hours: f64, min_size: usize) -> Vec<FileGroup> {
     let min = min_size.max(1);
     if items.is_empty() {
         return Vec::new();
@@ -161,6 +167,52 @@ fn fmt_utc(secs: i64) -> String {
     let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
     let year = if m <= 2 { y + 1 } else { y };
     format!("{year:04}-{m:02}-{d:02} {hour:02}:{minute:02}")
+}
+
+#[derive(Serialize, Clone)]
+struct GroupProgress {
+    done: usize,
+    total: usize,
+}
+
+/// Group images by visual similarity. Hashes every image (emitting `group-progress`
+/// per file, like `scan_folders`), then greedily clusters at `threshold`. Non-images
+/// and undecodable files are skipped. Runs inline in the async command (same pattern as
+/// the scan walk); returns `FileGroup[]` without mutating any `FileInfo`.
+#[tauri::command]
+pub async fn group_visual(
+    app: AppHandle,
+    files: Vec<FileInfo>,
+    threshold: u32,
+) -> Result<Vec<FileGroup>, String> {
+    let images: Vec<&FileInfo> = files
+        .iter()
+        .filter(|f| f.file_type == FileType::Image)
+        .collect();
+    let total = images.len();
+    let mut hashed: Vec<Hashed> = Vec::with_capacity(total);
+    for (i, f) in images.iter().enumerate() {
+        if let Some(hash) = dhash(Path::new(&f.path)) {
+            hashed.push(Hashed { id: f.id.clone(), hash });
+        }
+        app.emit("group-progress", GroupProgress { done: i + 1, total })
+            .ok();
+    }
+    Ok(cluster_visual(&hashed, threshold, MIN_GROUP_SIZE))
+}
+
+/// Group all files (images + videos) into temporal bursts within `hours`. Uses EXIF
+/// `date_taken` when present, else fs `modified_at`. Cheap — no progress events.
+#[tauri::command]
+pub async fn group_temporal(files: Vec<FileInfo>, hours: f64) -> Result<Vec<FileGroup>, String> {
+    let timed: Vec<Timed> = files
+        .iter()
+        .map(|f| Timed {
+            id: f.id.clone(),
+            timestamp: f.date_taken.unwrap_or(f.modified_at),
+        })
+        .collect();
+    Ok(cluster_temporal(&timed, hours, MIN_GROUP_SIZE))
 }
 
 #[cfg(test)]
@@ -243,7 +295,7 @@ mod tests {
             Timed { id: "c".into(), timestamp: 3600 },
             Timed { id: "d".into(), timestamp: 100_000 },
         ];
-        let groups = group_temporal(&items, 1.0, 2);
+        let groups = cluster_temporal(&items, 1.0, 2);
         assert_eq!(groups.len(), 1);
         assert_eq!(groups[0].file_ids, vec!["a", "b", "c"]);
         assert_eq!(groups[0].group_type, GroupType::Temporal);
@@ -263,7 +315,7 @@ mod tests {
             Timed { id: "d".into(), timestamp: 10_000 },
             Timed { id: "e".into(), timestamp: 10_100 },
         ];
-        let groups = group_temporal(&items, 1.0, 2);
+        let groups = cluster_temporal(&items, 1.0, 2);
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].file_ids, vec!["a", "b", "c"]);
         assert_eq!(groups[1].file_ids, vec!["d", "e", "f"]);
