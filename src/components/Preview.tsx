@@ -43,7 +43,7 @@ export function Preview() {
       <button
         type="button"
         aria-label="Close"
-        className="absolute top-3 right-4 z-10 text-3xl leading-none text-neutral-200 hover:text-white"
+        className="absolute top-3 right-4 z-10 text-3xl leading-none text-[var(--text)] hover:text-white"
         onClick={(e) => { e.stopPropagation(); closePreview(); }}
       >
         ✕
@@ -51,7 +51,7 @@ export function Preview() {
       <button
         type="button"
         aria-label="Previous"
-        className="absolute left-3 z-10 px-2 text-4xl text-neutral-300 hover:text-white"
+        className="absolute left-3 z-10 px-2 text-4xl text-[var(--text)] hover:text-white"
         onClick={(e) => { e.stopPropagation(); previewPrev(); }}
       >
         ‹
@@ -59,7 +59,7 @@ export function Preview() {
       <button
         type="button"
         aria-label="Next"
-        className="absolute right-3 z-10 px-2 text-4xl text-neutral-300 hover:text-white"
+        className="absolute right-3 z-10 px-2 text-4xl text-[var(--text)] hover:text-white"
         onClick={(e) => { e.stopPropagation(); previewNext(); }}
       >
         ›
@@ -67,9 +67,9 @@ export function Preview() {
 
       <div className="max-h-[95vh] max-w-[95vw]" onClick={(e) => e.stopPropagation()}>
         {showFallback ? (
-          <div className="rounded border border-neutral-700 bg-neutral-800 px-8 py-10 text-center">
-            <div className="truncate text-sm text-neutral-200">{file.name}</div>
-            <div className="mt-2 text-xs text-neutral-400">
+          <div className="rounded border border-[var(--border)] bg-[var(--elevated)] px-8 py-10 text-center">
+            <div className="truncate text-sm text-[var(--text)]">{file.name}</div>
+            <div className="mt-2 text-xs text-[var(--muted)]">
               Preview not available for .{file.extension.toLowerCase()} yet
             </div>
           </div>

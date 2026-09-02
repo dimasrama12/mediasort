@@ -28,8 +28,8 @@ export function FileCard({
     ? "border-blue-500 ring-2 ring-blue-500"
     : selected
       ? "border-sky-400"
-      : "border-neutral-700";
-  const bg = selected ? "bg-sky-500/20" : "bg-neutral-800";
+      : "border-[var(--border)]";
+  const bg = selected ? "bg-sky-500/20" : "bg-[var(--elevated)]";
 
   return (
     <button
@@ -50,8 +50,8 @@ export function FileCard({
       {status === "ready" && url && (
         <img src={url} alt={file.name} className="absolute inset-0 w-full h-full object-cover" />
       )}
-      {status === "loading" && <div className="absolute inset-0 animate-pulse bg-neutral-700/40" />}
-      <span className="relative z-10 w-full truncate p-1 text-[11px] text-neutral-200 bg-gradient-to-t from-black/70 to-transparent">
+      {status === "loading" && <div className="absolute inset-0 animate-pulse bg-[var(--elevated-hover)]/40" />}
+      <span className="relative z-10 w-full truncate p-1 text-[11px] text-[var(--text)] bg-gradient-to-t from-black/70 to-transparent">
         {file.name}
       </span>
     </button>

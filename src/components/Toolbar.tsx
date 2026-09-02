@@ -49,7 +49,7 @@ export function Toolbar() {
   const canGroup = !grouping && !scanning && files.length > 0;
 
   return (
-    <header className="flex items-center gap-3 px-4 h-12 border-b border-neutral-800 bg-neutral-900">
+    <header className="flex items-center gap-3 px-4 h-12 border-b border-[var(--border)] bg-[var(--panel)]">
       <button
         onClick={onScan}
         disabled={scanning}
@@ -60,19 +60,19 @@ export function Toolbar() {
       {scanning && (
         <button
           onClick={() => cancelScan()}
-          className="px-3 py-1.5 rounded bg-neutral-700 text-sm"
+          className="px-3 py-1.5 rounded bg-[var(--elevated-hover)] text-sm"
         >
           Cancel
         </button>
       )}
 
-      <div className="flex items-center gap-1 pl-3 ml-1 border-l border-neutral-800">
+      <div className="flex items-center gap-1 pl-3 ml-1 border-l border-[var(--border)]">
         <button
           onClick={() => void undo().catch(() => {})}
           disabled={undoStack.length === 0}
           aria-label="Undo"
           title="Undo (Ctrl+Z)"
-          className="px-2 py-1 rounded text-sm bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40"
+          className="px-2 py-1 rounded text-sm bg-[var(--elevated)] hover:bg-[var(--elevated-hover)] disabled:opacity-40"
         >
           ↶ Undo
         </button>
@@ -81,20 +81,20 @@ export function Toolbar() {
           disabled={redoStack.length === 0}
           aria-label="Redo"
           title="Redo (Ctrl+Y)"
-          className="px-2 py-1 rounded text-sm bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40"
+          className="px-2 py-1 rounded text-sm bg-[var(--elevated)] hover:bg-[var(--elevated-hover)] disabled:opacity-40"
         >
           ↷ Redo
         </button>
       </div>
 
-      <div className="flex items-center gap-1 pl-3 ml-1 border-l border-neutral-800">
-        <span className="text-xs text-neutral-500">Group:</span>
+      <div className="flex items-center gap-1 pl-3 ml-1 border-l border-[var(--border)]">
+        <span className="text-xs text-[var(--muted)]">Group:</span>
         <button
           onClick={() => runGroup("visual")}
           disabled={!canGroup}
           aria-pressed={groupMode === "visual"}
           className={`px-2 py-1 rounded text-sm disabled:opacity-40 ${
-            groupMode === "visual" ? "bg-amber-600" : "bg-neutral-800 hover:bg-neutral-700"
+            groupMode === "visual" ? "bg-amber-600" : "bg-[var(--elevated)] hover:bg-[var(--elevated-hover)]"
           }`}
         >
           {grouping ? "Grouping…" : "Similar"}
@@ -104,7 +104,7 @@ export function Toolbar() {
           disabled={!canGroup}
           aria-pressed={groupMode === "temporal"}
           className={`px-2 py-1 rounded text-sm disabled:opacity-40 ${
-            groupMode === "temporal" ? "bg-amber-600" : "bg-neutral-800 hover:bg-neutral-700"
+            groupMode === "temporal" ? "bg-amber-600" : "bg-[var(--elevated)] hover:bg-[var(--elevated-hover)]"
           }`}
         >
           By time
@@ -112,7 +112,7 @@ export function Toolbar() {
         {groupMode !== "none" && (
           <button
             onClick={() => clearGroups()}
-            className="px-2 py-1 rounded text-sm bg-neutral-800 hover:bg-neutral-700 text-neutral-400"
+            className="px-2 py-1 rounded text-sm bg-[var(--elevated)] hover:bg-[var(--elevated-hover)] text-[var(--muted)]"
           >
             Clear
           </button>
@@ -122,14 +122,14 @@ export function Toolbar() {
       <button
         onClick={() => openRename()}
         disabled={scanning || files.length === 0}
-        className="px-2 py-1 rounded text-sm bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40"
+        className="px-2 py-1 rounded text-sm bg-[var(--elevated)] hover:bg-[var(--elevated-hover)] disabled:opacity-40"
       >
         Rename…
       </button>
 
       <button
         onClick={() => openProjects()}
-        className="px-2 py-1 rounded text-sm bg-neutral-800 hover:bg-neutral-700"
+        className="px-2 py-1 rounded text-sm bg-[var(--elevated)] hover:bg-[var(--elevated-hover)]"
       >
         Projects
       </button>
@@ -138,7 +138,7 @@ export function Toolbar() {
         onClick={() => openSettings()}
         aria-label="Settings"
         title="Settings"
-        className="px-2 py-1 rounded text-sm bg-neutral-800 hover:bg-neutral-700"
+        className="px-2 py-1 rounded text-sm bg-[var(--elevated)] hover:bg-[var(--elevated-hover)]"
       >
         ⚙
       </button>
@@ -149,10 +149,10 @@ export function Toolbar() {
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Search name…"
         aria-label="Search files by name"
-        className="ml-auto w-44 px-2 py-1 rounded bg-neutral-800 text-sm outline-none placeholder:text-neutral-500"
+        className="ml-auto w-44 px-2 py-1 rounded bg-[var(--elevated)] text-sm outline-none placeholder:text-[var(--muted)]"
       />
 
-      <span className="text-sm text-neutral-400">
+      <span className="text-sm text-[var(--muted)]">
         {scanning ? `${files.length} found…` : `${scanned} items`}
       </span>
     </header>

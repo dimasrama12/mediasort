@@ -70,7 +70,7 @@ export function RenamePanel() {
 
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/50">
-      <div className="w-[420px] rounded-lg bg-neutral-900 border border-neutral-700 p-4 flex flex-col gap-3">
+      <div className="w-[420px] rounded-lg bg-[var(--panel)] border border-[var(--border)] p-4 flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium">
             Rename {targets.length} file{targets.length === 1 ? "" : "s"}
@@ -79,35 +79,35 @@ export function RenamePanel() {
             type="button"
             onClick={closeRename}
             aria-label="Close"
-            className="text-neutral-400 hover:text-neutral-100"
+            className="text-[var(--muted)] hover:text-[var(--text)]"
           >
             ✕
           </button>
         </div>
 
-        <label className="text-xs text-neutral-400 flex flex-col gap-1">
-          Pattern (use <code className="text-neutral-300">{"{n}"}</code> for the number)
+        <label className="text-xs text-[var(--muted)] flex flex-col gap-1">
+          Pattern (use <code className="text-[var(--text)]">{"{n}"}</code> for the number)
           <input
             autoFocus
             value={pattern}
             onChange={(e) => setPattern(e.target.value)}
             aria-label="Rename pattern"
-            className="px-2 py-1 rounded bg-neutral-800 text-sm outline-none"
+            className="px-2 py-1 rounded bg-[var(--elevated)] text-sm outline-none"
           />
         </label>
 
         <div className="flex gap-3">
-          <label className="text-xs text-neutral-400 flex flex-col gap-1 flex-1">
+          <label className="text-xs text-[var(--muted)] flex flex-col gap-1 flex-1">
             Start
             <input
               type="number"
               value={start}
               onChange={(e) => setStart(Number(e.target.value) || 0)}
               aria-label="Start number"
-              className="px-2 py-1 rounded bg-neutral-800 text-sm outline-none"
+              className="px-2 py-1 rounded bg-[var(--elevated)] text-sm outline-none"
             />
           </label>
-          <label className="text-xs text-neutral-400 flex flex-col gap-1 flex-1">
+          <label className="text-xs text-[var(--muted)] flex flex-col gap-1 flex-1">
             Zero-pad width
             <input
               type="number"
@@ -115,13 +115,13 @@ export function RenamePanel() {
               value={pad}
               onChange={(e) => setPad(Math.max(0, Number(e.target.value) || 0))}
               aria-label="Zero-pad width"
-              className="px-2 py-1 rounded bg-neutral-800 text-sm outline-none"
+              className="px-2 py-1 rounded bg-[var(--elevated)] text-sm outline-none"
             />
           </label>
         </div>
 
-        <div className="text-xs text-neutral-500">
-          First file → <span className="text-neutral-300">{preview}</span>
+        <div className="text-xs text-[var(--muted)]">
+          First file → <span className="text-[var(--text)]">{preview}</span>
         </div>
         {error && <div className="text-xs text-red-400">{error}</div>}
 
@@ -129,7 +129,7 @@ export function RenamePanel() {
           <button
             type="button"
             onClick={closeRename}
-            className="px-3 py-1.5 rounded bg-neutral-800 hover:bg-neutral-700 text-sm"
+            className="px-3 py-1.5 rounded bg-[var(--elevated)] hover:bg-[var(--elevated-hover)] text-sm"
           >
             Cancel
           </button>

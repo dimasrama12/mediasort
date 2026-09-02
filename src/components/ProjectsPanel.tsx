@@ -58,27 +58,27 @@ export function ProjectsPanel() {
 
   return (
     <div className="absolute inset-0 z-40 flex justify-end bg-black/50">
-      <div className="w-[380px] h-full bg-neutral-900 border-l border-neutral-700 flex flex-col">
-        <header className="flex items-center justify-between px-3 py-2 border-b border-neutral-800">
+      <div className="w-[380px] h-full bg-[var(--panel)] border-l border-[var(--border)] flex flex-col">
+        <header className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)]">
           <h2 className="text-sm font-medium">Projects</h2>
           <button
             type="button"
             onClick={closeProjects}
             aria-label="Close"
-            className="text-neutral-400 hover:text-neutral-100"
+            className="text-[var(--muted)] hover:text-[var(--text)]"
           >
             ✕
           </button>
         </header>
 
-        <div className="p-3 flex gap-2 border-b border-neutral-800">
+        <div className="p-3 flex gap-2 border-b border-[var(--border)]">
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && onSave()}
             placeholder="Save current session as…"
             aria-label="Project name"
-            className="flex-1 min-w-0 px-2 py-1 rounded bg-neutral-800 text-sm outline-none"
+            className="flex-1 min-w-0 px-2 py-1 rounded bg-[var(--elevated)] text-sm outline-none"
           />
           <button
             type="button"
@@ -92,23 +92,23 @@ export function ProjectsPanel() {
 
         <div className="flex-1 overflow-auto">
           {list.length === 0 ? (
-            <p className="p-4 text-sm text-neutral-500">No saved projects yet.</p>
+            <p className="p-4 text-sm text-[var(--muted)]">No saved projects yet.</p>
           ) : (
             list.map((p) => (
               <div
                 key={p.id}
-                className="flex items-center gap-2 px-3 py-2 border-b border-neutral-800"
+                className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border)]"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm text-neutral-200">{p.name}</div>
-                  <div className="text-[11px] text-neutral-500">
+                  <div className="truncate text-sm text-[var(--text)]">{p.name}</div>
+                  <div className="text-[11px] text-[var(--muted)]">
                     {p.fileCount} files · {new Date(p.savedAt).toLocaleString()}
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={() => onLoad(p.id)}
-                  className="rounded bg-neutral-700 px-2 py-1 text-xs hover:bg-neutral-600"
+                  className="rounded bg-[var(--elevated-hover)] px-2 py-1 text-xs hover:bg-[var(--elevated-hover)]"
                 >
                   Load
                 </button>
@@ -116,7 +116,7 @@ export function ProjectsPanel() {
                   type="button"
                   onClick={() => onDelete(p.id)}
                   aria-label={`Delete ${p.name}`}
-                  className="text-neutral-500 hover:text-red-400 text-xs px-1"
+                  className="text-[var(--muted)] hover:text-red-400 text-xs px-1"
                 >
                   ✕
                 </button>

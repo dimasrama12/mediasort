@@ -36,21 +36,21 @@ export function SettingsPanel() {
 
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/50">
-      <div className="w-[440px] rounded-lg bg-neutral-900 border border-neutral-700 p-4 flex flex-col gap-4">
+      <div className="w-[440px] rounded-lg bg-[var(--panel)] border border-[var(--border)] p-4 flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium">Settings</h2>
           <button
             type="button"
             onClick={closeSettings}
             aria-label="Close"
-            className="text-neutral-400 hover:text-neutral-100"
+            className="text-[var(--muted)] hover:text-[var(--text)]"
           >
             ✕
           </button>
         </div>
 
-        <label className="text-xs text-neutral-400 flex flex-col gap-1">
-          Similarity threshold: <span className="text-neutral-300">{settings.similarityThreshold}%</span>
+        <label className="text-xs text-[var(--muted)] flex flex-col gap-1">
+          Similarity threshold: <span className="text-[var(--text)]">{settings.similarityThreshold}%</span>
           <input
             type="range"
             min={0}
@@ -61,7 +61,7 @@ export function SettingsPanel() {
           />
         </label>
 
-        <label className="text-xs text-neutral-400 flex flex-col gap-1">
+        <label className="text-xs text-[var(--muted)] flex flex-col gap-1">
           Time window (hours)
           <input
             type="number"
@@ -70,11 +70,11 @@ export function SettingsPanel() {
             value={settings.timeWindowHours}
             onChange={(e) => patch({ timeWindowHours: Math.max(0, Number(e.target.value) || 0) })}
             aria-label="Time window hours"
-            className="px-2 py-1 rounded bg-neutral-800 text-sm outline-none"
+            className="px-2 py-1 rounded bg-[var(--elevated)] text-sm outline-none"
           />
         </label>
 
-        <label className="text-xs text-neutral-400 flex flex-col gap-1">
+        <label className="text-xs text-[var(--muted)] flex flex-col gap-1">
           Minimum group size
           <input
             type="number"
@@ -82,17 +82,17 @@ export function SettingsPanel() {
             value={settings.minGroupSize}
             onChange={(e) => patch({ minGroupSize: Math.max(2, Number(e.target.value) || 2) })}
             aria-label="Minimum group size"
-            className="px-2 py-1 rounded bg-neutral-800 text-sm outline-none"
+            className="px-2 py-1 rounded bg-[var(--elevated)] text-sm outline-none"
           />
         </label>
 
-        <label className="text-xs text-neutral-400 flex flex-col gap-1">
+        <label className="text-xs text-[var(--muted)] flex flex-col gap-1">
           Theme
           <select
             value={settings.theme}
             onChange={(e) => patch({ theme: e.target.value as Theme })}
             aria-label="Theme"
-            className="px-2 py-1 rounded bg-neutral-800 text-sm outline-none capitalize"
+            className="px-2 py-1 rounded bg-[var(--elevated)] text-sm outline-none capitalize"
           >
             {THEMES.map((t) => (
               <option key={t} value={t}>
@@ -106,7 +106,7 @@ export function SettingsPanel() {
           <button
             type="button"
             onClick={onReset}
-            className="px-3 py-1.5 rounded bg-neutral-800 hover:bg-neutral-700 text-sm text-neutral-400"
+            className="px-3 py-1.5 rounded bg-[var(--elevated)] hover:bg-[var(--elevated-hover)] text-sm text-[var(--muted)]"
           >
             Reset to defaults
           </button>

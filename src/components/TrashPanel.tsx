@@ -37,13 +37,13 @@ export function TrashPanel() {
 
   return (
     <div className="absolute inset-0 z-40 flex justify-end bg-black/50">
-      <div className="w-[380px] h-full bg-neutral-900 border-l border-neutral-700 flex flex-col">
-        <header className="flex items-center justify-between px-3 py-2 border-b border-neutral-800">
+      <div className="w-[380px] h-full bg-[var(--panel)] border-l border-[var(--border)] flex flex-col">
+        <header className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)]">
           <h2 className="text-sm font-medium">Trash ({trashItems.length})</h2>
           <button
             type="button"
             onClick={closeTrash}
-            className="text-neutral-400 hover:text-neutral-100"
+            className="text-[var(--muted)] hover:text-[var(--text)]"
             aria-label="Close"
           >
             ✕
@@ -51,23 +51,23 @@ export function TrashPanel() {
         </header>
         <div className="flex-1 overflow-auto">
           {trashItems.length === 0 ? (
-            <p className="p-4 text-sm text-neutral-500">Trash is empty.</p>
+            <p className="p-4 text-sm text-[var(--muted)]">Trash is empty.</p>
           ) : (
             trashItems.map((it) => (
               <div
                 key={it.id}
-                className="flex items-center gap-2 px-3 py-2 border-b border-neutral-800"
+                className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border)]"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm text-neutral-200" title={it.originalPath}>
+                  <div className="truncate text-sm text-[var(--text)]" title={it.originalPath}>
                     {it.name}
                   </div>
-                  <div className="text-[11px] text-neutral-500">{kb(it.size)}</div>
+                  <div className="text-[11px] text-[var(--muted)]">{kb(it.size)}</div>
                 </div>
                 <button
                   type="button"
                   onClick={() => onRestore(it.id, it.originalPath)}
-                  className="rounded bg-neutral-700 px-2 py-1 text-xs hover:bg-neutral-600"
+                  className="rounded bg-[var(--elevated-hover)] px-2 py-1 text-xs hover:bg-[var(--elevated-hover)]"
                 >
                   Restore
                 </button>
@@ -75,7 +75,7 @@ export function TrashPanel() {
             ))
           )}
         </div>
-        <footer className="p-3 border-t border-neutral-800">
+        <footer className="p-3 border-t border-[var(--border)]">
           <button
             type="button"
             onClick={onEmpty}
