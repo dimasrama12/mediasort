@@ -32,3 +32,11 @@ export const listTargetFolders = (): Promise<FolderInfo[]> =>
 /** Move files into `dest`; returns their new absolute paths (order-matched). */
 export const moveFiles = (paths: string[], dest: string): Promise<string[]> =>
   invoke<string[]>("move_files", { paths, dest });
+
+/** Rename a target folder (moves its dir on disk); returns the updated 1–9 list. */
+export const renameFolder = (id: string, name: string): Promise<FolderInfo[]> =>
+  invoke<FolderInfo[]>("rename_folder", { id, name });
+
+/** Remove a target folder (renumbers shortcuts); returns the updated 1–9 list. */
+export const deleteFolder = (id: string): Promise<FolderInfo[]> =>
+  invoke<FolderInfo[]>("delete_folder", { id });

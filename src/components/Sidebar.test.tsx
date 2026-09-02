@@ -1,4 +1,4 @@
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("../lib/commands", () => ({
@@ -9,10 +9,14 @@ vi.mock("../lib/commands", () => ({
     shortcut: 1,
     fileCount: 0,
   })),
+  renameFolder: vi.fn(async (_id: string, name: string) => [
+    { id: name.toLowerCase(), name, path: `C:/base/${name}`, shortcut: 1, fileCount: 0 },
+  ]),
+  deleteFolder: vi.fn(async (_id: string) => []),
 }));
 
 import { Sidebar } from "./Sidebar";
-import { createFolder } from "../lib/commands";
+import { createFolder, renameFolder, deleteFolder } from "../lib/commands";
 import { useAppStore } from "../store/useAppStore";
 import type { FolderInfo } from "../lib/types";
 
@@ -24,6 +28,7 @@ const mkFolder = (id: string, shortcut: number): FolderInfo => ({
   fileCount: 0,
 });
 
+beforeEach(() => vi.clearAllMocks());
 afterEach(cleanup);
 
 test("renders the 1-9 legend from the store", () => {
@@ -48,4 +53,23 @@ test("New folder is disabled once nine folders exist", () => {
   useAppStore.setState({ folders: nine, roots: ["C:/base"] });
   render(<Sidebar />);
   expect(screen.getByText("All 9 keys used")).toBeDisabled();
+});
+
+test("delete button removes the folder via command and updates the store", async () => {
+  useAppStore.setState({ folders: [mkFolder("fam", 1)], roots: ["C:/base"] });
+  render(<Sidebar />);
+  fireEvent.click(screen.getByLabelText("Delete fam"));
+  await waitFor(() => expect(deleteFolder).toHaveBeenCalledWith("fam"));
+  await waitFor(() => expect(useAppStore.getState().folders).toHaveLength(0));
+});
+
+test("double-clicking a name renames it via command", async () => {
+  useAppStore.setState({ folders: [mkFolder("fam", 1)], roots: ["C:/base"] });
+  render(<Sidebar />);
+  fireEvent.doubleClick(screen.getByText("fam"));
+  const input = screen.getByDisplayValue("fam");
+  fireEvent.change(input, { target: { value: "Family" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(renameFolder).toHaveBeenCalledWith("fam", "Family"));
+  await waitFor(() => expect(useAppStore.getState().folders[0].name).toBe("Family"));
 });

@@ -1,14 +1,17 @@
 import { useState } from "react";
 import { useAppStore } from "../store/useAppStore";
-import { createFolder } from "../lib/commands";
+import { createFolder, renameFolder, deleteFolder } from "../lib/commands";
 
 export function Sidebar() {
   const folders = useAppStore((s) => s.folders);
   const roots = useAppStore((s) => s.roots);
   const upsertFolder = useAppStore((s) => s.upsertFolder);
+  const setFolders = useAppStore((s) => s.setFolders);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
   const base = roots[0] ?? "";
   const full = folders.length >= 9;
 
@@ -25,6 +28,27 @@ export function Sidebar() {
     }
   }
 
+  async function onRename(id: string) {
+    const trimmed = editName.trim();
+    setEditingId(null);
+    if (!trimmed) return;
+    try {
+      setFolders(await renameFolder(id, trimmed));
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function onDelete(id: string) {
+    try {
+      setFolders(await deleteFolder(id));
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   return (
     <aside className="w-56 shrink-0 border-r border-neutral-800 bg-neutral-900 flex flex-col overflow-auto">
       <div className="p-2 text-[11px] text-neutral-500 truncate" title={base}>
@@ -34,8 +58,38 @@ export function Sidebar() {
         {folders.map((f) => (
           <li key={f.id} className="flex items-center gap-2 px-2 py-1 text-sm text-neutral-200">
             <kbd className="w-5 h-5 grid place-items-center rounded bg-neutral-800 text-xs">{f.shortcut}</kbd>
-            <span className="flex-1 truncate" title={f.path}>{f.name}</span>
+            {editingId === f.id ? (
+              <input
+                autoFocus
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") onRename(f.id);
+                  if (e.key === "Escape") setEditingId(null);
+                }}
+                onBlur={() => setEditingId(null)}
+                className="flex-1 min-w-0 px-1 rounded bg-neutral-800 text-sm outline-none"
+              />
+            ) : (
+              <span
+                className="flex-1 truncate cursor-text"
+                title={f.path}
+                onDoubleClick={() => {
+                  setEditingId(f.id);
+                  setEditName(f.name);
+                }}
+              >
+                {f.name}
+              </span>
+            )}
             <span className="text-neutral-500 text-xs">{f.fileCount}</span>
+            <button
+              aria-label={`Delete ${f.name}`}
+              onClick={() => onDelete(f.id)}
+              className="text-neutral-500 hover:text-red-400 text-xs px-1"
+            >
+              ×
+            </button>
           </li>
         ))}
       </ul>
