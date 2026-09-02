@@ -3,18 +3,14 @@ import type { FileGroup, FileInfo, FolderInfo, TrashItem } from "../lib/types";
 
 export type GroupMode = "none" | "visual" | "temporal";
 
-interface MoveRecord {
-  file: FileInfo;
-  folderId: string;
-  fromDir: string;
-  toPath: string;
-  fromIndex: number;
+interface MovedFile {
+  file: FileInfo; // as it was BEFORE the move (path = source path)
+  fromIndex: number; // its index in `files` before removal
+  toPath: string; // where it landed
 }
 
-const dirname = (p: string) => {
-  const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
-  return i >= 0 ? p.slice(0, i) : p;
-};
+/** A grouped, reversible operation on the undo/redo stacks. */
+export type HistoryOp = { kind: "move"; folderId: string; moved: MovedFile[] };
 
 interface AppState {
   files: FileInfo[];
@@ -25,7 +21,8 @@ interface AppState {
   selectedIds: string[];
   folders: FolderInfo[];
   roots: string[];
-  moveHistory: MoveRecord[];
+  undoStack: HistoryOp[];
+  redoStack: HistoryOp[];
   trashOpen: boolean;
   trashItems: TrashItem[];
   groups: FileGroup[];
@@ -50,7 +47,8 @@ interface AppState {
   upsertFolder: (f: FolderInfo) => void;
   completeMove: (index: number, folderId: string, toPath: string) => void;
   completeMoveMany: (ids: string[], folderId: string, toPaths: string[]) => void;
-  completeUndo: (backPath: string) => void;
+  applyUndoMove: (backPaths: string[]) => void;
+  applyRedoMove: (newPaths: string[]) => void;
   openTrash: () => void;
   closeTrash: () => void;
   toggleTrash: () => void;
@@ -73,7 +71,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedIds: [],
   folders: [],
   roots: [],
-  moveHistory: [],
+  undoStack: [],
+  redoStack: [],
   trashOpen: false,
   trashItems: [],
   groups: [],
@@ -89,7 +88,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       focusedId: null,
       selectedIds: [],
       folders: [],
-      moveHistory: [],
+      undoStack: [],
+      redoStack: [],
       groups: [],
       groupMode: "none",
       query: "",
@@ -106,7 +106,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedIds: [],
       folders: [],
       roots: [],
-      moveHistory: [],
+      undoStack: [],
+      redoStack: [],
       trashOpen: false,
       trashItems: [],
       groups: [],
@@ -164,7 +165,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       const files = s.files.filter((f) => !idSet.has(f.id));
       const focusIdx = Math.min(indices[0], files.length - 1);
       const focusedId = focusIdx >= 0 ? files[focusIdx].id : null;
-      return { files, focusedId, selectedIds: [] };
+      // Trash isn't on the undo stack, but it's a new mutation — invalidate redo.
+      return { files, focusedId, selectedIds: [], redoStack: [] };
     }),
   setRoots: (roots) => set({ roots }),
   setFolders: (folders) => set({ folders }),
@@ -184,57 +186,88 @@ export const useAppStore = create<AppState>((set, get) => ({
       const folders = s.folders.map((f) =>
         f.id === folderId ? { ...f, fileCount: f.fileCount + 1 } : f,
       );
-      const record: MoveRecord = {
-        file,
+      const op: HistoryOp = {
+        kind: "move",
         folderId,
-        fromDir: dirname(file.path),
-        toPath,
-        fromIndex: index,
+        moved: [{ file, fromIndex: index, toPath }],
       };
-      return { files, focusedId, folders, moveHistory: [...s.moveHistory, record] };
+      return { files, focusedId, folders, undoStack: [...s.undoStack, op], redoStack: [] };
     }),
   completeMoveMany: (ids, folderId, toPaths) =>
     set((s) => {
-      const records: MoveRecord[] = ids
+      const moved: MovedFile[] = ids
         .map((id, k) => {
           const fromIndex = s.files.findIndex((f) => f.id === id);
           const file = s.files[fromIndex];
-          return file
-            ? { file, folderId, fromDir: dirname(file.path), toPath: toPaths[k], fromIndex }
-            : null;
+          return file ? { file, fromIndex, toPath: toPaths[k] } : null;
         })
-        .filter((r): r is MoveRecord => r != null)
+        .filter((m): m is MovedFile => m != null)
         .sort((a, b) => a.fromIndex - b.fromIndex);
-      if (records.length === 0) return {};
-      const idSet = new Set(records.map((r) => r.file.id));
+      if (moved.length === 0) return {};
+      const idSet = new Set(moved.map((m) => m.file.id));
       const files = s.files.filter((f) => !idSet.has(f.id));
-      const focusIdx = Math.min(records[0].fromIndex, files.length - 1);
+      const focusIdx = Math.min(moved[0].fromIndex, files.length - 1);
       const focusedId = focusIdx >= 0 ? files[focusIdx].id : null;
       const folders = s.folders.map((f) =>
-        f.id === folderId ? { ...f, fileCount: f.fileCount + records.length } : f,
+        f.id === folderId ? { ...f, fileCount: f.fileCount + moved.length } : f,
       );
-      // Newest-first so per-press Ctrl+Z pops the lowest original index first,
-      // re-inserting survivors in the right slots to reconstruct the exact order.
-      const history = [...records].reverse();
+      // One grouped op so a single Ctrl+Z undoes the whole batch (fixes #5d deferral).
+      const op: HistoryOp = { kind: "move", folderId, moved };
       return {
         files,
         focusedId,
         folders,
         selectedIds: [],
-        moveHistory: [...s.moveHistory, ...history],
+        undoStack: [...s.undoStack, op],
+        redoStack: [],
       };
     }),
-  completeUndo: (backPath) =>
+  applyUndoMove: (backPaths) =>
     set((s) => {
-      const record = s.moveHistory[s.moveHistory.length - 1];
-      if (!record) return {};
-      const restored = { ...record.file, path: backPath };
-      const at = Math.min(record.fromIndex, s.files.length);
-      const files = [...s.files.slice(0, at), restored, ...s.files.slice(at)];
+      const op = s.undoStack[s.undoStack.length - 1];
+      if (!op || op.kind !== "move") return {};
+      // Reinsert each moved file at its original index; ascending order reconstructs
+      // the exact pre-move array (lower slots filled first as the array grows).
+      const pairs = op.moved
+        .map((m, k) => ({ at: m.fromIndex, file: { ...m.file, path: backPaths[k] ?? m.file.path } }))
+        .sort((a, b) => a.at - b.at);
+      let files = [...s.files];
+      for (const p of pairs) {
+        const at = Math.min(p.at, files.length);
+        files = [...files.slice(0, at), p.file, ...files.slice(at)];
+      }
       const folders = s.folders.map((f) =>
-        f.id === record.folderId ? { ...f, fileCount: Math.max(0, f.fileCount - 1) } : f,
+        f.id === op.folderId ? { ...f, fileCount: Math.max(0, f.fileCount - op.moved.length) } : f,
       );
-      return { files, focusedId: restored.id, folders, moveHistory: s.moveHistory.slice(0, -1) };
+      return {
+        files,
+        folders,
+        focusedId: pairs[0]?.file.id ?? s.focusedId,
+        selectedIds: [],
+        undoStack: s.undoStack.slice(0, -1),
+        redoStack: [...s.redoStack, op],
+      };
+    }),
+  applyRedoMove: (newPaths) =>
+    set((s) => {
+      const op = s.redoStack[s.redoStack.length - 1];
+      if (!op || op.kind !== "move") return {};
+      const idSet = new Set(op.moved.map((m) => m.file.id));
+      const files = s.files.filter((f) => !idSet.has(f.id));
+      const moved = op.moved.map((m, k) => ({ ...m, toPath: newPaths[k] ?? m.toPath }));
+      const focusIdx = Math.min(op.moved[0].fromIndex, files.length - 1);
+      const focusedId = focusIdx >= 0 ? files[focusIdx].id : null;
+      const folders = s.folders.map((f) =>
+        f.id === op.folderId ? { ...f, fileCount: f.fileCount + op.moved.length } : f,
+      );
+      return {
+        files,
+        folders,
+        focusedId,
+        selectedIds: [],
+        redoStack: s.redoStack.slice(0, -1),
+        undoStack: [...s.undoStack, { ...op, moved }],
+      };
     }),
   applyGroups: (groups, mode) =>
     set((s) => {
@@ -265,6 +298,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       const files = s.files.map((f) => map.get(f.id) ?? f);
       const focusedId =
         s.focusedId != null && map.has(s.focusedId) ? map.get(s.focusedId)!.id : s.focusedId;
-      return { files, focusedId, selectedIds: [], renameOpen: false };
+      return { files, focusedId, selectedIds: [], renameOpen: false, redoStack: [] };
     }),
 }));

@@ -154,38 +154,52 @@ test("startScan and reset clear focusedId", () => {
   expect(useAppStore.getState().focusedId).toBeNull();
 });
 
-test("completeMove removes the file, advances focus, bumps count, records history", () => {
-  useAppStore.setState({ files: [mk("a"), mk("b"), mk("c")], folders: [mkFolder("fam", 1)], focusedId: "a", moveHistory: [] });
+test("completeMove removes the file, advances focus, bumps count, records one undo op", () => {
+  useAppStore.setState({ files: [mk("a"), mk("b"), mk("c")], folders: [mkFolder("fam", 1)], focusedId: "a", undoStack: [], redoStack: [] });
   useAppStore.getState().completeMove(0, "fam", "C:/base/fam/a.jpg");
   const s = useAppStore.getState();
   expect(s.files.map((f) => f.id)).toEqual(["b", "c"]);
   expect(s.focusedId).toBe("b");
   expect(s.folders[0].fileCount).toBe(1);
-  expect(s.moveHistory).toHaveLength(1);
-  expect(s.moveHistory[0].fromIndex).toBe(0);
+  expect(s.undoStack).toHaveLength(1);
+  expect(s.undoStack[0].moved[0].fromIndex).toBe(0);
 });
 
 test("completeMove on the last file focuses the new last", () => {
-  useAppStore.setState({ files: [mk("a"), mk("b")], folders: [mkFolder("fam", 1)], focusedId: "b", moveHistory: [] });
+  useAppStore.setState({ files: [mk("a"), mk("b")], folders: [mkFolder("fam", 1)], focusedId: "b", undoStack: [], redoStack: [] });
   useAppStore.getState().completeMove(1, "fam", "C:/base/fam/b.jpg");
   expect(useAppStore.getState().focusedId).toBe("a");
 });
 
 test("completeMove emptying the grid clears focus", () => {
-  useAppStore.setState({ files: [mk("a")], folders: [mkFolder("fam", 1)], focusedId: "a", moveHistory: [] });
+  useAppStore.setState({ files: [mk("a")], folders: [mkFolder("fam", 1)], focusedId: "a", undoStack: [], redoStack: [] });
   useAppStore.getState().completeMove(0, "fam", "C:/base/fam/a.jpg");
   expect(useAppStore.getState().focusedId).toBeNull();
 });
 
-test("completeUndo re-inserts at original index, refocuses, decrements count", () => {
-  useAppStore.setState({ files: [mk("a"), mk("b"), mk("c")], folders: [mkFolder("fam", 1)], focusedId: "a", moveHistory: [] });
+test("applyUndoMove re-inserts at original index, refocuses, decrements count, fills redo", () => {
+  useAppStore.setState({ files: [mk("a"), mk("b"), mk("c")], folders: [mkFolder("fam", 1)], focusedId: "a", undoStack: [], redoStack: [] });
   useAppStore.getState().completeMove(0, "fam", "C:/base/fam/a.jpg");
-  useAppStore.getState().completeUndo("C:/x/a.jpg");
+  useAppStore.getState().applyUndoMove(["C:/x/a.jpg"]);
   const s = useAppStore.getState();
   expect(s.files.map((f) => f.id)).toEqual(["a", "b", "c"]);
+  expect(s.files[0].path).toBe("C:/x/a.jpg");
   expect(s.focusedId).toBe("a");
   expect(s.folders[0].fileCount).toBe(0);
-  expect(s.moveHistory).toHaveLength(0);
+  expect(s.undoStack).toHaveLength(0);
+  expect(s.redoStack).toHaveLength(1);
+});
+
+test("applyRedoMove re-applies an undone move and refills undo", () => {
+  useAppStore.setState({ files: [mk("a"), mk("b"), mk("c")], folders: [mkFolder("fam", 1)], focusedId: "a", undoStack: [], redoStack: [] });
+  useAppStore.getState().completeMove(0, "fam", "C:/base/fam/a.jpg");
+  useAppStore.getState().applyUndoMove(["a"]);
+  useAppStore.getState().applyRedoMove(["C:/base/fam/a.jpg"]);
+  const s = useAppStore.getState();
+  expect(s.files.map((f) => f.id)).toEqual(["b", "c"]);
+  expect(s.folders[0].fileCount).toBe(1);
+  expect(s.redoStack).toEqual([]);
+  expect(s.undoStack).toHaveLength(1);
 });
 
 test("selectOnly sets a single-item selection and focuses it", () => {
@@ -228,13 +242,14 @@ test("startScan and reset clear the selection", () => {
   expect(useAppStore.getState().selectedIds).toEqual([]);
 });
 
-test("completeMoveMany moves all selected, records N, advances focus, clears selection", () => {
+test("completeMoveMany moves all selected, records ONE grouped op, advances focus, clears selection", () => {
   useAppStore.setState({
     files: [mk("a"), mk("b"), mk("c"), mk("d"), mk("e")],
     folders: [mkFolder("fam", 1)],
     focusedId: "a",
     selectedIds: ["a", "c", "e"],
-    moveHistory: [],
+    undoStack: [],
+    redoStack: [],
   });
   useAppStore.getState().completeMoveMany(
     ["a", "c", "e"],
@@ -245,30 +260,31 @@ test("completeMoveMany moves all selected, records N, advances focus, clears sel
   expect(s.files.map((f) => f.id)).toEqual(["b", "d"]);
   expect(s.focusedId).toBe("b"); // survivor at the lowest removed slot (0)
   expect(s.folders[0].fileCount).toBe(3);
-  expect(s.moveHistory).toHaveLength(3);
+  expect(s.undoStack).toHaveLength(1);
+  expect(s.undoStack[0].moved).toHaveLength(3);
   expect(s.selectedIds).toEqual([]);
 });
 
-test("completeMoveMany + repeated completeUndo reconstructs the original array and order", () => {
+test("completeMoveMany + ONE applyUndoMove reconstructs the original array and order (grouped)", () => {
   useAppStore.setState({
     files: [mk("a"), mk("b"), mk("c"), mk("d"), mk("e")],
     folders: [mkFolder("fam", 1)],
     focusedId: "a",
     selectedIds: ["a", "c", "e"],
-    moveHistory: [],
+    undoStack: [],
+    redoStack: [],
   });
   useAppStore.getState().completeMoveMany(
     ["a", "c", "e"],
     "fam",
     ["C:/base/fam/a", "C:/base/fam/c", "C:/base/fam/e"],
   );
-  useAppStore.getState().completeUndo("C:/x/a.jpg");
-  useAppStore.getState().completeUndo("C:/x/c.jpg");
-  useAppStore.getState().completeUndo("C:/x/e.jpg");
+  useAppStore.getState().applyUndoMove(["a", "c", "e"]); // back-paths in moved (ascending) order
   const s = useAppStore.getState();
   expect(s.files.map((f) => f.id)).toEqual(["a", "b", "c", "d", "e"]);
   expect(s.folders[0].fileCount).toBe(0);
-  expect(s.moveHistory).toEqual([]);
+  expect(s.undoStack).toEqual([]);
+  expect(s.redoStack).toHaveLength(1);
 });
 
 test("upsertFolder replaces by id and stays sorted by shortcut", () => {
@@ -304,7 +320,8 @@ test("completeTrash removes ids, advances focus, clears selection, leaves folder
     folders: [mkFolder("fam", 1)],
     focusedId: "a",
     selectedIds: ["a", "c"],
-    moveHistory: [],
+    undoStack: [],
+    redoStack: [],
   });
   useAppStore.getState().completeTrash(["a", "c"]);
   const s = useAppStore.getState();
@@ -312,7 +329,7 @@ test("completeTrash removes ids, advances focus, clears selection, leaves folder
   expect(s.focusedId).toBe("b");
   expect(s.selectedIds).toEqual([]);
   expect(s.folders[0].fileCount).toBe(0);
-  expect(s.moveHistory).toEqual([]);
+  expect(s.undoStack).toEqual([]);
 });
 
 test("reset clears trash; startScan keeps it", () => {
@@ -332,12 +349,12 @@ test("setRoots records; startScan clears folders/history but keeps roots; reset 
   useAppStore.getState().setRoots(["C:/x"]);
   useAppStore.setState({
     folders: [mkFolder("fam", 1)],
-    moveHistory: [{ file: mk("a"), folderId: "fam", fromDir: "C:/x", toPath: "C:/base/fam/a.jpg", fromIndex: 0 }],
+    undoStack: [{ kind: "move", folderId: "fam", moved: [{ file: mk("a"), fromIndex: 0, toPath: "C:/base/fam/a.jpg" }] }],
   });
   useAppStore.getState().startScan();
   expect(useAppStore.getState().roots).toEqual(["C:/x"]);
   expect(useAppStore.getState().folders).toEqual([]);
-  expect(useAppStore.getState().moveHistory).toEqual([]);
+  expect(useAppStore.getState().undoStack).toEqual([]);
   useAppStore.getState().reset();
   expect(useAppStore.getState().roots).toEqual([]);
 });
