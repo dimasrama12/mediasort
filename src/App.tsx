@@ -5,11 +5,14 @@ import { FileGrid } from "./components/FileGrid";
 import { Preview } from "./components/Preview";
 import { TrashPanel } from "./components/TrashPanel";
 import { RenamePanel } from "./components/RenamePanel";
+import { SettingsPanel } from "./components/SettingsPanel";
 import { onScanFile, onScanDone } from "./lib/events";
+import { getSettings } from "./lib/commands";
 import { useAppStore } from "./store/useAppStore";
 
 function App() {
   const { addFiles, finishScan } = useAppStore();
+  const setSettings = useAppStore((s) => s.setSettings);
 
   useEffect(() => {
     const unlisteners = Promise.all([
@@ -21,6 +24,11 @@ function App() {
     };
   }, [addFiles, finishScan]);
 
+  // Load persisted settings once on startup.
+  useEffect(() => {
+    void getSettings().then(setSettings).catch(() => {});
+  }, [setSettings]);
+
   return (
     <main className="h-screen flex flex-col bg-neutral-950 text-neutral-100">
       <Toolbar />
@@ -31,6 +39,7 @@ function App() {
       <Preview />
       <TrashPanel />
       <RenamePanel />
+      <SettingsPanel />
     </main>
   );
 }

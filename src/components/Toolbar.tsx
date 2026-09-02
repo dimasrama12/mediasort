@@ -9,10 +9,6 @@ import {
 import { useAppStore } from "../store/useAppStore";
 import { undo, redo } from "../lib/history";
 
-// Defaults from DESIGN §4 AppSettings until the settings slice wires them up.
-const SIMILARITY_THRESHOLD = 80;
-const TIME_WINDOW_HOURS = 1;
-
 export function Toolbar() {
   const { scanning, files, scanned, startScan, setRoots } = useAppStore();
   const groupMode = useAppStore((s) => s.groupMode);
@@ -21,6 +17,8 @@ export function Toolbar() {
   const query = useAppStore((s) => s.query);
   const setQuery = useAppStore((s) => s.setQuery);
   const openRename = useAppStore((s) => s.openRename);
+  const openSettings = useAppStore((s) => s.openSettings);
+  const settings = useAppStore((s) => s.settings);
   const undoStack = useAppStore((s) => s.undoStack);
   const redoStack = useAppStore((s) => s.redoStack);
   const [grouping, setGrouping] = useState(false);
@@ -39,8 +37,8 @@ export function Toolbar() {
     try {
       const groups =
         mode === "visual"
-          ? await groupVisual(files, SIMILARITY_THRESHOLD)
-          : await groupTemporal(files, TIME_WINDOW_HOURS);
+          ? await groupVisual(files, settings.similarityThreshold)
+          : await groupTemporal(files, settings.timeWindowHours);
       applyGroups(groups, mode);
     } finally {
       setGrouping(false);
@@ -126,6 +124,15 @@ export function Toolbar() {
         className="px-2 py-1 rounded text-sm bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40"
       >
         Rename…
+      </button>
+
+      <button
+        onClick={() => openSettings()}
+        aria-label="Settings"
+        title="Settings"
+        className="px-2 py-1 rounded text-sm bg-neutral-800 hover:bg-neutral-700"
+      >
+        ⚙
       </button>
 
       <input
