@@ -3,6 +3,7 @@ import { Toolbar } from "./components/Toolbar";
 import { Sidebar } from "./components/Sidebar";
 import { FileGrid } from "./components/FileGrid";
 import { Preview } from "./components/Preview";
+import { TrashPanel } from "./components/TrashPanel";
 import { onScanFile, onScanDone } from "./lib/events";
 import { useAppStore } from "./store/useAppStore";
 
@@ -27,6 +28,7 @@ function App() {
         <FileGrid />
       </div>
       <Preview />
+      <TrashPanel />
     </main>
   );
 }

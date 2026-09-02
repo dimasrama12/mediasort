@@ -9,10 +9,20 @@ vi.mock("../lib/commands", () => ({
   moveFiles: vi.fn(async (paths: string[], dest: string) =>
     paths.map((p) => `${dest}/${p.split(/[\\/]/).pop()}`),
   ),
+  trashFiles: vi.fn(async (paths: string[]) =>
+    paths.map((p, i) => ({
+      id: `t${i}`,
+      originalPath: p,
+      trashPath: `C:/trash/t${i}`,
+      name: p.split(/[\\/]/).pop() ?? "",
+      size: 1,
+      deletedAt: 0,
+    })),
+  ),
 }));
 
 import { FileGrid } from "./FileGrid";
-import { moveFiles } from "../lib/commands";
+import { moveFiles, trashFiles } from "../lib/commands";
 import { useAppStore } from "../store/useAppStore";
 import type { FileInfo } from "../lib/types";
 
@@ -25,7 +35,7 @@ const fam = { id: "fam", name: "fam", path: "C:/base/fam", shortcut: 1, fileCoun
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useAppStore.setState({ files: [], focusedId: null, previewId: null, folders: [], moveHistory: [], selectedIds: [] });
+  useAppStore.setState({ files: [], focusedId: null, previewId: null, folders: [], moveHistory: [], selectedIds: [], trashOpen: false });
 });
 afterEach(cleanup);
 
@@ -103,6 +113,37 @@ test("Escape clears a non-empty selection", () => {
   render(<FileGrid />);
   fireEvent.keyDown(window, { key: "Escape" });
   expect(useAppStore.getState().selectedIds).toEqual([]);
+});
+
+test("Del trashes the selection and removes those files", async () => {
+  useAppStore.setState({ files: [mk("a"), mk("b"), mk("c")], focusedId: "b", selectedIds: ["a", "c"], trashOpen: false });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "Delete" });
+  await waitFor(() => expect(trashFiles).toHaveBeenCalledWith(["C:/x/a.jpg", "C:/x/c.jpg"]));
+  await waitFor(() => expect(useAppStore.getState().files.map((f) => f.id)).toEqual(["b"]));
+  expect(useAppStore.getState().selectedIds).toEqual([]);
+});
+
+test("Del with no selection trashes the focused file", async () => {
+  useAppStore.setState({ files: [mk("a"), mk("b")], focusedId: "a", selectedIds: [], trashOpen: false });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "Delete" });
+  await waitFor(() => expect(trashFiles).toHaveBeenCalledWith(["C:/x/a.jpg"]));
+  await waitFor(() => expect(useAppStore.getState().files.map((f) => f.id)).toEqual(["b"]));
+});
+
+test("T toggles the trash panel (works with an empty grid)", () => {
+  useAppStore.setState({ files: [], focusedId: null, trashOpen: false });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "t" });
+  expect(useAppStore.getState().trashOpen).toBe(true);
+});
+
+test("grid keys are inert while the trash panel is open", () => {
+  useAppStore.setState({ files: [mk("a"), mk("b")], folders: [fam], focusedId: "a", selectedIds: [], trashOpen: true });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "1" });
+  expect(moveFiles).not.toHaveBeenCalled();
 });
 
 test("digits are inert while the preview is open", () => {
