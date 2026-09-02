@@ -3,6 +3,7 @@ mod folders;
 mod grouping;
 mod model;
 mod paths;
+mod project;
 mod scan;
 mod settings;
 mod thumbnail;
@@ -43,6 +44,10 @@ pub fn run() {
             let app_data = app.path().app_data_dir().expect("resolve app_data_dir");
             std::fs::create_dir_all(&app_data).ok();
             app.manage(settings::SettingsState::new(app_data.join("settings.json")));
+
+            let projects_dir = app_data.join("projects");
+            std::fs::create_dir_all(&projects_dir).ok();
+            app.manage(project::ProjectState::new(projects_dir));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -66,7 +71,11 @@ pub fn run() {
             trash::empty_trash,
             settings::get_settings,
             settings::save_settings,
-            settings::reset_settings
+            settings::reset_settings,
+            project::save_project,
+            project::load_project,
+            project::list_projects,
+            project::delete_project
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
