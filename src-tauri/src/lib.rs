@@ -4,6 +4,7 @@ mod model;
 mod paths;
 mod scan;
 mod thumbnail;
+mod trash;
 
 use tauri::Manager;
 
@@ -28,6 +29,14 @@ pub fn run() {
                 .join("thumbnails");
             std::fs::create_dir_all(&cache_dir).ok();
             app.manage(thumbnail::ThumbState::new(cache_dir));
+
+            let trash_dir = app
+                .path()
+                .app_data_dir()
+                .expect("resolve app_data_dir")
+                .join("trash");
+            std::fs::create_dir_all(&trash_dir).ok();
+            app.manage(trash::TrashState::new(trash_dir));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -40,7 +49,12 @@ pub fn run() {
             folders::list_target_folders,
             folders::rename_folder,
             folders::delete_folder,
-            fileops::move_files
+            fileops::move_files,
+            trash::trash_files,
+            trash::list_trash,
+            trash::restore_from_trash,
+            trash::trash_stats,
+            trash::empty_trash
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
