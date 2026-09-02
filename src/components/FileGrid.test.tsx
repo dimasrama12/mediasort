@@ -6,9 +6,9 @@ vi.mock("../lib/useThumbnail", () => ({
 }));
 
 vi.mock("../lib/commands", () => ({
-  moveFiles: vi.fn(async (paths: string[], dest: string) => [
-    `${dest}/${paths[0].split(/[\\/]/).pop()}`,
-  ]),
+  moveFiles: vi.fn(async (paths: string[], dest: string) =>
+    paths.map((p) => `${dest}/${p.split(/[\\/]/).pop()}`),
+  ),
 }));
 
 import { FileGrid } from "./FileGrid";
@@ -25,7 +25,7 @@ const fam = { id: "fam", name: "fam", path: "C:/base/fam", shortcut: 1, fileCoun
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useAppStore.setState({ files: [], focusedId: null, previewId: null, folders: [], moveHistory: [] });
+  useAppStore.setState({ files: [], focusedId: null, previewId: null, folders: [], moveHistory: [], selectedIds: [] });
 });
 afterEach(cleanup);
 
@@ -84,6 +84,25 @@ test("Ctrl+Z moves the last-moved file back", async () => {
   fireEvent.keyDown(window, { key: "z", ctrlKey: true });
   await waitFor(() => expect(useAppStore.getState().files.map((f) => f.id)).toEqual(["a", "b"]));
   expect(useAppStore.getState().focusedId).toBe("a");
+});
+
+test("with a selection, a mapped digit moves the whole selection (grid order) and clears it", async () => {
+  useAppStore.setState({ files: [mk("a"), mk("b"), mk("c")], folders: [fam], focusedId: "b", selectedIds: ["a", "c"] });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "1" });
+  await waitFor(() =>
+    expect(moveFiles).toHaveBeenCalledWith(["C:/x/a.jpg", "C:/x/c.jpg"], "C:/base/fam"),
+  );
+  await waitFor(() => expect(useAppStore.getState().files.map((f) => f.id)).toEqual(["b"]));
+  expect(useAppStore.getState().folders[0].fileCount).toBe(2);
+  expect(useAppStore.getState().selectedIds).toEqual([]);
+});
+
+test("Escape clears a non-empty selection", () => {
+  useAppStore.setState({ files: [mk("a"), mk("b")], focusedId: "a", previewId: null, selectedIds: ["a", "b"] });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(useAppStore.getState().selectedIds).toEqual([]);
 });
 
 test("digits are inert while the preview is open", () => {

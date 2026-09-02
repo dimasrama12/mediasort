@@ -13,7 +13,10 @@ export function FileGrid() {
   const setFocus = useAppStore((s) => s.setFocus);
   const openPreview = useAppStore((s) => s.openPreview);
   const completeMove = useAppStore((s) => s.completeMove);
+  const completeMoveMany = useAppStore((s) => s.completeMoveMany);
   const completeUndo = useAppStore((s) => s.completeUndo);
+  const clearSelection = useAppStore((s) => s.clearSelection);
+  const selectedIds = useAppStore((s) => s.selectedIds);
   const parentRef = useRef<HTMLDivElement>(null);
   const columns = Math.max(1, Math.floor((parentRef.current?.clientWidth ?? 1200) / CARD));
   const rows = Math.ceil(files.length / columns);
@@ -38,7 +41,8 @@ export function FileGrid() {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-      const { files, focusedId, previewId, folders, moveHistory } = useAppStore.getState();
+      const { files, focusedId, previewId, folders, moveHistory, selectedIds } =
+        useAppStore.getState();
       if (previewId != null) return; // Preview owns Esc / ←/→
 
       // Undo the last move (Ctrl+Z) — works even if the grid just emptied.
@@ -53,13 +57,35 @@ export function FileGrid() {
         return;
       }
 
+      // Clear the selection (Escape). Preview already consumed Esc via the previewId guard.
+      if (e.key === "Escape") {
+        if (selectedIds.length > 0) {
+          e.preventDefault();
+          clearSelection();
+        }
+        return;
+      }
+
       if (files.length === 0) return;
 
-      // Move the focused file to target folder N (bare 1–9).
+      // Move to target folder N (bare 1–9): the whole selection if any, else the focused file.
       if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key >= "1" && e.key <= "9") {
         const folder = folders.find((f) => f.shortcut === Number(e.key));
+        if (!folder) return;
+        if (selectedIds.length > 0) {
+          const sel = files.filter((f) => selectedIds.includes(f.id)); // grid order
+          if (sel.length > 0) {
+            e.preventDefault();
+            const ids = sel.map((f) => f.id);
+            const paths = sel.map((f) => f.path);
+            void moveFiles(paths, folder.path)
+              .then((newPaths) => completeMoveMany(ids, folder.id, newPaths))
+              .catch(() => {});
+          }
+          return;
+        }
         const index = files.findIndex((f) => f.id === focusedId);
-        if (folder && index >= 0) {
+        if (index >= 0) {
           e.preventDefault();
           const path = files[index].path;
           void moveFiles([path], folder.path)
@@ -89,7 +115,7 @@ export function FileGrid() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [setFocus, openPreview, completeMove, completeUndo]);
+  }, [setFocus, openPreview, completeMove, completeUndo, completeMoveMany, clearSelection]);
 
   // Keep the focused cell in view.
   useEffect(() => {
@@ -117,7 +143,12 @@ export function FileGrid() {
               style={{ top: vr.start, height: CARD, width: "100%" }}
             >
               {cells.map((f) => (
-                <FileCard key={f.id} file={f} focused={f.id === focusedId} />
+                <FileCard
+                  key={f.id}
+                  file={f}
+                  focused={f.id === focusedId}
+                  selected={selectedIds.includes(f.id)}
+                />
               ))}
             </div>
           );
