@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useAppStore } from "../store/useAppStore";
 import { FileCard } from "./FileCard";
 import { nextFocusIndex } from "../lib/gridNav";
+import { moveFiles } from "../lib/commands";
 
 const CARD = 160; // px cell size
 
@@ -11,6 +12,8 @@ export function FileGrid() {
   const focusedId = useAppStore((s) => s.focusedId);
   const setFocus = useAppStore((s) => s.setFocus);
   const openPreview = useAppStore((s) => s.openPreview);
+  const completeMove = useAppStore((s) => s.completeMove);
+  const completeUndo = useAppStore((s) => s.completeUndo);
   const parentRef = useRef<HTMLDivElement>(null);
   const columns = Math.max(1, Math.floor((parentRef.current?.clientWidth ?? 1200) / CARD));
   const rows = Math.ceil(files.length / columns);
@@ -29,11 +32,44 @@ export function FileGrid() {
     }
   }, [files, setFocus]);
 
-  // Keyboard navigation — inert while the Preview owns the keyboard.
+  // Keyboard: focus nav (#5a) + move-on-keypress / undo (#5b). Inert while the
+  // Preview owns the keyboard, and ignored while typing in a form field.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const { files, focusedId, previewId } = useAppStore.getState();
-      if (previewId != null || files.length === 0) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      const { files, focusedId, previewId, folders, moveHistory } = useAppStore.getState();
+      if (previewId != null) return; // Preview owns Esc / ←/→
+
+      // Undo the last move (Ctrl+Z) — works even if the grid just emptied.
+      if (e.ctrlKey && (e.key === "z" || e.key === "Z")) {
+        const top = moveHistory[moveHistory.length - 1];
+        if (top) {
+          e.preventDefault();
+          void moveFiles([top.toPath], top.fromDir)
+            .then(([backPath]) => completeUndo(backPath))
+            .catch(() => {});
+        }
+        return;
+      }
+
+      if (files.length === 0) return;
+
+      // Move the focused file to target folder N (bare 1–9).
+      if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key >= "1" && e.key <= "9") {
+        const folder = folders.find((f) => f.shortcut === Number(e.key));
+        const index = files.findIndex((f) => f.id === focusedId);
+        if (folder && index >= 0) {
+          e.preventDefault();
+          const path = files[index].path;
+          void moveFiles([path], folder.path)
+            .then(([newPath]) => completeMove(index, folder.id, newPath))
+            .catch(() => {});
+        }
+        return;
+      }
+
+      // Open the focused file (F / Enter).
       if (e.key === "f" || e.key === "F" || e.key === "Enter") {
         if (focusedId != null) {
           openPreview(focusedId);
@@ -41,6 +77,8 @@ export function FileGrid() {
         }
         return;
       }
+
+      // Arrow / vim focus movement.
       if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "j", "k"].includes(e.key)) {
         const cols = Math.max(1, Math.floor((parentRef.current?.clientWidth ?? 0) / CARD));
         const cur = files.findIndex((f) => f.id === focusedId);
@@ -51,7 +89,7 @@ export function FileGrid() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [setFocus, openPreview]);
+  }, [setFocus, openPreview, completeMove, completeUndo]);
 
   // Keep the focused cell in view.
   useEffect(() => {

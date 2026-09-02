@@ -1,11 +1,18 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
 vi.mock("../lib/useThumbnail", () => ({
   useThumbnail: () => ({ url: null, status: "placeholder" }),
 }));
 
+vi.mock("../lib/commands", () => ({
+  moveFiles: vi.fn(async (paths: string[], dest: string) => [
+    `${dest}/${paths[0].split(/[\\/]/).pop()}`,
+  ]),
+}));
+
 import { FileGrid } from "./FileGrid";
+import { moveFiles } from "../lib/commands";
 import { useAppStore } from "../store/useAppStore";
 import type { FileInfo } from "../lib/types";
 
@@ -14,7 +21,12 @@ const mk = (id: string): FileInfo => ({
   modifiedAt: 0, dateTaken: null, fileType: "image", groupId: null,
 });
 
-beforeEach(() => useAppStore.setState({ files: [], focusedId: null, previewId: null }));
+const fam = { id: "fam", name: "fam", path: "C:/base/fam", shortcut: 1, fileCount: 0 };
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  useAppStore.setState({ files: [], focusedId: null, previewId: null, folders: [], moveHistory: [] });
+});
 afterEach(cleanup);
 
 test("defaults focus to the first file on mount", () => {
@@ -44,4 +56,39 @@ test("arrows are inert while the preview is open", () => {
   render(<FileGrid />);
   fireEvent.keyDown(window, { key: "ArrowRight" });
   expect(useAppStore.getState().focusedId).toBe("a");
+});
+
+test("a mapped digit moves the focused file to that folder", async () => {
+  useAppStore.setState({ files: [mk("a"), mk("b"), mk("c")], folders: [fam], focusedId: "a" });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "1" });
+  await waitFor(() => expect(moveFiles).toHaveBeenCalledWith(["C:/x/a.jpg"], "C:/base/fam"));
+  await waitFor(() => expect(useAppStore.getState().files.map((f) => f.id)).toEqual(["b", "c"]));
+  expect(useAppStore.getState().focusedId).toBe("b");
+  expect(useAppStore.getState().folders[0].fileCount).toBe(1);
+});
+
+test("an unmapped digit does nothing", () => {
+  useAppStore.setState({ files: [mk("a")], folders: [], focusedId: "a" });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "5" });
+  expect(moveFiles).not.toHaveBeenCalled();
+  expect(useAppStore.getState().files).toHaveLength(1);
+});
+
+test("Ctrl+Z moves the last-moved file back", async () => {
+  useAppStore.setState({ files: [mk("a"), mk("b")], folders: [fam], focusedId: "a" });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "1" });
+  await waitFor(() => expect(useAppStore.getState().files.map((f) => f.id)).toEqual(["b"]));
+  fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+  await waitFor(() => expect(useAppStore.getState().files.map((f) => f.id)).toEqual(["a", "b"]));
+  expect(useAppStore.getState().focusedId).toBe("a");
+});
+
+test("digits are inert while the preview is open", () => {
+  useAppStore.setState({ files: [mk("a")], folders: [fam], focusedId: "a", previewId: "a" });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "1" });
+  expect(moveFiles).not.toHaveBeenCalled();
 });
