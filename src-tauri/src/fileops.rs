@@ -1,6 +1,8 @@
 //! File moves for target-folder sorting + batch rename: rename fast-path, cross-volume
 //! copy-then-delete fallback, `_N` collision suffix, two-phase batch rename.
 
+use crate::model::FileInfo;
+use crate::scan::build_file_info;
 use std::path::{Path, PathBuf};
 
 /// Return `target` if free, else the first `stem_N.ext` variant that doesn't exist.
@@ -132,14 +134,23 @@ pub fn apply_batch_rename(
     Ok(out)
 }
 
+/// Rename `paths` to `pattern`+`{n}` and return the rebuilt `FileInfo` for each renamed file
+/// (backend stays the source of truth for the normalized id). Group membership is dropped.
 #[tauri::command]
 pub async fn batch_rename(
     paths: Vec<String>,
     pattern: String,
     start: u32,
     pad: u32,
-) -> Result<Vec<String>, String> {
-    apply_batch_rename(&paths, &pattern, start, pad as usize)
+) -> Result<Vec<FileInfo>, String> {
+    let new_paths = apply_batch_rename(&paths, &pattern, start, pad as usize)?;
+    let mut out = Vec::with_capacity(new_paths.len());
+    for p in &new_paths {
+        out.push(
+            build_file_info(Path::new(p)).ok_or_else(|| format!("stat after rename failed: {p}"))?,
+        );
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
