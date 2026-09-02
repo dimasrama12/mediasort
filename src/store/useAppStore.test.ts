@@ -121,6 +121,16 @@ test("setQuery sets the search query and reset clears it", () => {
   expect(useAppStore.getState().query).toBe("");
 });
 
+test("setSettings replaces settings; open/closeSettings flip the panel", () => {
+  useAppStore.getState().openSettings();
+  expect(useAppStore.getState().settingsOpen).toBe(true);
+  useAppStore.getState().closeSettings();
+  expect(useAppStore.getState().settingsOpen).toBe(false);
+  const next = { ...useAppStore.getState().settings, similarityThreshold: 55 };
+  useAppStore.getState().setSettings(next);
+  expect(useAppStore.getState().settings.similarityThreshold).toBe(55);
+});
+
 test("re-applying groups reassigns membership (old indicators drop off)", () => {
   useAppStore.setState({ files: [mk("a"), mk("b"), mk("c")], groups: [], groupMode: "none" });
   useAppStore.getState().applyGroups([grp("visual-1", ["a", "b"], "visual")], "visual");

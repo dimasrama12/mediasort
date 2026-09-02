@@ -44,3 +44,29 @@ export interface TrashStats {
   count: number;
   totalSize: number;
 }
+
+export type Theme = "light" | "dark" | "system";
+
+export interface AppSettings {
+  similarityThreshold: number;
+  timeWindowHours: number;
+  minGroupSize: number;
+  theme: Theme;
+  defaultView: string;
+  thumbnailSize: number;
+  sidebarWidth: number;
+  sidebarCollapsed: boolean;
+  cachePath: string | null;
+}
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  similarityThreshold: 80,
+  timeWindowHours: 1,
+  minGroupSize: 2,
+  theme: "system",
+  defaultView: "grid",
+  thumbnailSize: 200,
+  sidebarWidth: 224,
+  sidebarCollapsed: false,
+  cachePath: null,
+};

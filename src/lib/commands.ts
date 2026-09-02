@@ -1,6 +1,13 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { FileGroup, FileInfo, FolderInfo, TrashItem, TrashStats } from "./types";
+import type {
+  AppSettings,
+  FileGroup,
+  FileInfo,
+  FolderInfo,
+  TrashItem,
+  TrashStats,
+} from "./types";
 
 /** Start a background scan of the given folders. Results arrive via scan-* events. */
 export const scanFolders = (paths: string[]) => invoke<void>("scan_folders", { paths });
@@ -73,3 +80,13 @@ export const emptyTrash = (): Promise<void> => invoke<void>("empty_trash");
 
 /** Count + total size of the app trash. */
 export const trashStats = (): Promise<TrashStats> => invoke<TrashStats>("trash_stats");
+
+/** Load persisted settings (defaults if none saved yet). */
+export const getSettings = (): Promise<AppSettings> => invoke<AppSettings>("get_settings");
+
+/** Persist settings to disk. */
+export const saveSettings = (settings: AppSettings): Promise<void> =>
+  invoke<void>("save_settings", { settings });
+
+/** Reset settings to defaults on disk; returns the defaults. */
+export const resetSettings = (): Promise<AppSettings> => invoke<AppSettings>("reset_settings");

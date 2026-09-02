@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import type { FileGroup, FileInfo, FolderInfo, TrashItem } from "../lib/types";
+import type { AppSettings, FileGroup, FileInfo, FolderInfo, TrashItem } from "../lib/types";
+import { DEFAULT_SETTINGS } from "../lib/types";
 
 export type GroupMode = "none" | "visual" | "temporal";
 
@@ -29,6 +30,8 @@ interface AppState {
   groupMode: GroupMode;
   query: string;
   renameOpen: boolean;
+  settings: AppSettings;
+  settingsOpen: boolean;
   startScan: () => void;
   addFiles: (batch: FileInfo[]) => void;
   finishScan: (total: number) => void;
@@ -60,6 +63,9 @@ interface AppState {
   openRename: () => void;
   closeRename: () => void;
   completeRename: (originalIds: string[], newFiles: FileInfo[]) => void;
+  setSettings: (settings: AppSettings) => void;
+  openSettings: () => void;
+  closeSettings: () => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -79,6 +85,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   groupMode: "none",
   query: "",
   renameOpen: false,
+  settings: DEFAULT_SETTINGS,
+  settingsOpen: false,
   startScan: () =>
     set({
       scanning: true,
@@ -114,6 +122,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       groupMode: "none",
       query: "",
       renameOpen: false,
+      settingsOpen: false,
     }),
   openPreview: (id) => set({ previewId: id }),
   closePreview: () => set({ previewId: null }),
@@ -300,4 +309,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         s.focusedId != null && map.has(s.focusedId) ? map.get(s.focusedId)!.id : s.focusedId;
       return { files, focusedId, selectedIds: [], renameOpen: false, redoStack: [] };
     }),
+  setSettings: (settings) => set({ settings }),
+  openSettings: () => set({ settingsOpen: true }),
+  closeSettings: () => set({ settingsOpen: false }),
 }));
