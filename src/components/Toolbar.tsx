@@ -18,6 +18,7 @@ export function Toolbar() {
   const setQuery = useAppStore((s) => s.setQuery);
   const openRename = useAppStore((s) => s.openRename);
   const openSettings = useAppStore((s) => s.openSettings);
+  const openProjects = useAppStore((s) => s.openProjects);
   const settings = useAppStore((s) => s.settings);
   const undoStack = useAppStore((s) => s.undoStack);
   const redoStack = useAppStore((s) => s.redoStack);
@@ -124,6 +125,13 @@ export function Toolbar() {
         className="px-2 py-1 rounded text-sm bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40"
       >
         Rename…
+      </button>
+
+      <button
+        onClick={() => openProjects()}
+        className="px-2 py-1 rounded text-sm bg-neutral-800 hover:bg-neutral-700"
+      >
+        Projects
       </button>
 
       <button

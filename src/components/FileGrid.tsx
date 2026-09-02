@@ -63,13 +63,14 @@ export function FileGrid() {
         trashOpen,
         renameOpen,
         settingsOpen,
+        projectsOpen,
         query,
       } = useAppStore.getState();
       // Operate on the visible (filtered) set, exactly what's on screen.
       const files = filterFiles(allFiles, query);
 
       // A modal panel owns the keyboard while open (its own Esc closes it).
-      if (renameOpen || settingsOpen) return;
+      if (renameOpen || settingsOpen || projectsOpen) return;
 
       // Trash panel owns the keyboard while open: T/Esc close it, everything else inert.
       if (trashOpen) {

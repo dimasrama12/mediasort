@@ -6,6 +6,7 @@ import { Preview } from "./components/Preview";
 import { TrashPanel } from "./components/TrashPanel";
 import { RenamePanel } from "./components/RenamePanel";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { ProjectsPanel } from "./components/ProjectsPanel";
 import { onScanFile, onScanDone } from "./lib/events";
 import { getSettings } from "./lib/commands";
 import { useAppStore } from "./store/useAppStore";
@@ -40,6 +41,7 @@ function App() {
       <TrashPanel />
       <RenamePanel />
       <SettingsPanel />
+      <ProjectsPanel />
     </main>
   );
 }
