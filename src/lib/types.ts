@@ -19,3 +19,17 @@ export interface FolderInfo {
   shortcut: number; // 1..9
   fileCount: number;
 }
+
+export interface TrashItem {
+  id: string;
+  originalPath: string;
+  trashPath: string;
+  name: string;
+  size: number;
+  deletedAt: number;
+}
+
+export interface TrashStats {
+  count: number;
+  totalSize: number;
+}

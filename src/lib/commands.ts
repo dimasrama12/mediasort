@@ -1,6 +1,6 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { FolderInfo } from "./types";
+import type { FolderInfo, TrashItem, TrashStats } from "./types";
 
 /** Start a background scan of the given folders. Results arrive via scan-* events. */
 export const scanFolders = (paths: string[]) => invoke<void>("scan_folders", { paths });
@@ -40,3 +40,20 @@ export const renameFolder = (id: string, name: string): Promise<FolderInfo[]> =>
 /** Remove a target folder (renumbers shortcuts); returns the updated 1–9 list. */
 export const deleteFolder = (id: string): Promise<FolderInfo[]> =>
   invoke<FolderInfo[]>("delete_folder", { id });
+
+/** Move files to the app trash; returns the created trash items. */
+export const trashFiles = (paths: string[]): Promise<TrashItem[]> =>
+  invoke<TrashItem[]>("trash_files", { paths });
+
+/** List app-trash items (newest-first). */
+export const listTrash = (): Promise<TrashItem[]> => invoke<TrashItem[]>("list_trash");
+
+/** Restore a trash item to `dest` (collision-suffixed on disk). */
+export const restoreFromTrash = (id: string, dest: string): Promise<void> =>
+  invoke<void>("restore_from_trash", { id, dest });
+
+/** Empty the app trash to the OS Recycle Bin. */
+export const emptyTrash = (): Promise<void> => invoke<void>("empty_trash");
+
+/** Count + total size of the app trash. */
+export const trashStats = (): Promise<TrashStats> => invoke<TrashStats>("trash_stats");
