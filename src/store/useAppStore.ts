@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { FileInfo, FolderInfo } from "../lib/types";
+import type { FileInfo, FolderInfo, TrashItem } from "../lib/types";
 
 interface MoveRecord {
   file: FileInfo;
@@ -24,6 +24,8 @@ interface AppState {
   folders: FolderInfo[];
   roots: string[];
   moveHistory: MoveRecord[];
+  trashOpen: boolean;
+  trashItems: TrashItem[];
   startScan: () => void;
   addFiles: (batch: FileInfo[]) => void;
   finishScan: (total: number) => void;
@@ -43,6 +45,11 @@ interface AppState {
   completeMove: (index: number, folderId: string, toPath: string) => void;
   completeMoveMany: (ids: string[], folderId: string, toPaths: string[]) => void;
   completeUndo: (backPath: string) => void;
+  openTrash: () => void;
+  closeTrash: () => void;
+  toggleTrash: () => void;
+  setTrashItems: (items: TrashItem[]) => void;
+  completeTrash: (ids: string[]) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -55,6 +62,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   folders: [],
   roots: [],
   moveHistory: [],
+  trashOpen: false,
+  trashItems: [],
   startScan: () =>
     set({
       scanning: true,
@@ -79,6 +88,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       folders: [],
       roots: [],
       moveHistory: [],
+      trashOpen: false,
+      trashItems: [],
     }),
   openPreview: (id) => set({ previewId: id }),
   closePreview: () => set({ previewId: null }),
@@ -116,6 +127,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       };
     }),
   clearSelection: () => set({ selectedIds: [] }),
+  openTrash: () => set({ trashOpen: true }),
+  closeTrash: () => set({ trashOpen: false }),
+  toggleTrash: () => set((s) => ({ trashOpen: !s.trashOpen })),
+  setTrashItems: (items) => set({ trashItems: items }),
+  completeTrash: (ids) =>
+    set((s) => {
+      const idSet = new Set(ids);
+      const indices = s.files
+        .map((f, i) => (idSet.has(f.id) ? i : -1))
+        .filter((i) => i >= 0);
+      if (indices.length === 0) return {};
+      const files = s.files.filter((f) => !idSet.has(f.id));
+      const focusIdx = Math.min(indices[0], files.length - 1);
+      const focusedId = focusIdx >= 0 ? files[focusIdx].id : null;
+      return { files, focusedId, selectedIds: [] };
+    }),
   setRoots: (roots) => set({ roots }),
   setFolders: (folders) => set({ folders }),
   upsertFolder: (f) =>

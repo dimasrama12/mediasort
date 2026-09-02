@@ -212,6 +212,53 @@ test("upsertFolder replaces by id and stays sorted by shortcut", () => {
   expect(useAppStore.getState().folders).toHaveLength(2);
 });
 
+test("toggleTrash / open / close flip trashOpen", () => {
+  useAppStore.setState({ trashOpen: false });
+  useAppStore.getState().toggleTrash();
+  expect(useAppStore.getState().trashOpen).toBe(true);
+  useAppStore.getState().closeTrash();
+  expect(useAppStore.getState().trashOpen).toBe(false);
+  useAppStore.getState().openTrash();
+  expect(useAppStore.getState().trashOpen).toBe(true);
+});
+
+test("setTrashItems replaces the list", () => {
+  useAppStore.getState().setTrashItems([
+    { id: "t1", originalPath: "C:/x/a.jpg", trashPath: "C:/trash/t1", name: "a.jpg", size: 1, deletedAt: 2 },
+  ]);
+  expect(useAppStore.getState().trashItems.map((t) => t.id)).toEqual(["t1"]);
+});
+
+test("completeTrash removes ids, advances focus, clears selection, leaves folders/history", () => {
+  useAppStore.setState({
+    files: [mk("a"), mk("b"), mk("c")],
+    folders: [mkFolder("fam", 1)],
+    focusedId: "a",
+    selectedIds: ["a", "c"],
+    moveHistory: [],
+  });
+  useAppStore.getState().completeTrash(["a", "c"]);
+  const s = useAppStore.getState();
+  expect(s.files.map((f) => f.id)).toEqual(["b"]);
+  expect(s.focusedId).toBe("b");
+  expect(s.selectedIds).toEqual([]);
+  expect(s.folders[0].fileCount).toBe(0);
+  expect(s.moveHistory).toEqual([]);
+});
+
+test("reset clears trash; startScan keeps it", () => {
+  useAppStore.setState({
+    trashOpen: true,
+    trashItems: [{ id: "t1", originalPath: "", trashPath: "", name: "a", size: 0, deletedAt: 0 }],
+  });
+  useAppStore.getState().startScan();
+  expect(useAppStore.getState().trashItems).toHaveLength(1);
+  expect(useAppStore.getState().trashOpen).toBe(true);
+  useAppStore.getState().reset();
+  expect(useAppStore.getState().trashItems).toEqual([]);
+  expect(useAppStore.getState().trashOpen).toBe(false);
+});
+
 test("setRoots records; startScan clears folders/history but keeps roots; reset clears roots", () => {
   useAppStore.getState().setRoots(["C:/x"]);
   useAppStore.setState({
