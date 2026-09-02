@@ -41,6 +41,14 @@ export const renameFolder = (id: string, name: string): Promise<FolderInfo[]> =>
 export const deleteFolder = (id: string): Promise<FolderInfo[]> =>
   invoke<FolderInfo[]>("delete_folder", { id });
 
+/** Rename `paths` to `pattern` (with `{n}`) + sequence; returns the rebuilt FileInfo per file. */
+export const batchRename = (
+  paths: string[],
+  pattern: string,
+  start: number,
+  pad: number,
+): Promise<FileInfo[]> => invoke<FileInfo[]>("batch_rename", { paths, pattern, start, pad });
+
 /** Group images by visual similarity (dHash ≥ threshold). Emits `group-progress`. */
 export const groupVisual = (files: FileInfo[], threshold: number): Promise<FileGroup[]> =>
   invoke<FileGroup[]>("group_visual", { files, threshold });

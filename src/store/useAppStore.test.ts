@@ -92,6 +92,28 @@ test("clearGroups removes indicators and resets mode", () => {
   expect(s.files.every((f) => f.groupId === null)).toBe(true);
 });
 
+test("completeRename patches renamed files, moves focus, clears selection, closes panel", () => {
+  useAppStore.setState({
+    files: [mk("a"), mk("b")],
+    focusedId: "a",
+    selectedIds: ["a"],
+    renameOpen: true,
+  });
+  const renamed: FileInfo = {
+    ...mk("x"),
+    id: "c:/x/photo 01.jpg",
+    path: "C:/x/Photo 01.jpg",
+    name: "Photo 01.jpg",
+  };
+  useAppStore.getState().completeRename(["a"], [renamed]);
+  const s = useAppStore.getState();
+  expect(s.files.map((f) => f.id)).toEqual(["c:/x/photo 01.jpg", "b"]);
+  expect(s.files[0].name).toBe("Photo 01.jpg");
+  expect(s.focusedId).toBe("c:/x/photo 01.jpg");
+  expect(s.selectedIds).toEqual([]);
+  expect(s.renameOpen).toBe(false);
+});
+
 test("setQuery sets the search query and reset clears it", () => {
   useAppStore.getState().setQuery("vac");
   expect(useAppStore.getState().query).toBe("vac");

@@ -31,6 +31,7 @@ interface AppState {
   groups: FileGroup[];
   groupMode: GroupMode;
   query: string;
+  renameOpen: boolean;
   startScan: () => void;
   addFiles: (batch: FileInfo[]) => void;
   finishScan: (total: number) => void;
@@ -58,6 +59,9 @@ interface AppState {
   applyGroups: (groups: FileGroup[], mode: Exclude<GroupMode, "none">) => void;
   clearGroups: () => void;
   setQuery: (query: string) => void;
+  openRename: () => void;
+  closeRename: () => void;
+  completeRename: (originalIds: string[], newFiles: FileInfo[]) => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -75,6 +79,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   groups: [],
   groupMode: "none",
   query: "",
+  renameOpen: false,
   startScan: () =>
     set({
       scanning: true,
@@ -107,6 +112,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       groups: [],
       groupMode: "none",
       query: "",
+      renameOpen: false,
     }),
   openPreview: (id) => set({ previewId: id }),
   closePreview: () => set({ previewId: null }),
@@ -247,4 +253,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       groupMode: "none",
     })),
   setQuery: (query) => set({ query }),
+  openRename: () => set({ renameOpen: true }),
+  closeRename: () => set({ renameOpen: false }),
+  completeRename: (originalIds, newFiles) =>
+    set((s) => {
+      const map = new Map<string, FileInfo>();
+      originalIds.forEach((id, i) => {
+        if (newFiles[i]) map.set(id, newFiles[i]);
+      });
+      if (map.size === 0) return {};
+      const files = s.files.map((f) => map.get(f.id) ?? f);
+      const focusedId =
+        s.focusedId != null && map.has(s.focusedId) ? map.get(s.focusedId)!.id : s.focusedId;
+      return { files, focusedId, selectedIds: [], renameOpen: false };
+    }),
 }));
