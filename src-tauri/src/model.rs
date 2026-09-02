@@ -35,6 +35,16 @@ pub struct FileInfo {
     pub group_id: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderInfo {
+    pub id: String,      // = normalize_path(path) — stable, unique, the dedup key
+    pub name: String,    // leaf folder name (display)
+    pub path: String,    // absolute path (as created)
+    pub shortcut: u8,    // 1..=9
+    pub file_count: u32, // files moved into it this session
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,5 +74,19 @@ mod tests {
         let j = serde_json::to_string(&f).unwrap();
         assert!(j.contains("\"modifiedAt\":1"));
         assert!(j.contains("\"fileType\":\"image\""));
+    }
+
+    #[test]
+    fn folderinfo_serializes_camelcase() {
+        let f = FolderInfo {
+            id: "d:\\a\\family".into(),
+            name: "family".into(),
+            path: "D:\\a\\family".into(),
+            shortcut: 1,
+            file_count: 3,
+        };
+        let j = serde_json::to_string(&f).unwrap();
+        assert!(j.contains("\"fileCount\":3"));
+        assert!(j.contains("\"shortcut\":1"));
     }
 }
