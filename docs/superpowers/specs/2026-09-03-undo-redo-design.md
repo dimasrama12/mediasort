@@ -17,11 +17,11 @@ deferral (one Ctrl+Z now undoes a whole batch move).
 
 - **Undoable/redoable: Move** (single + batch, each recorded as **one** grouped op). This is the
   frequent, index-sensitive operation and the one that already had partial undo.
-- **Deferred (documented):** Trash and Rename via the history stack. Both already have recovery
-  paths — Trash via the TrashPanel restore, Rename by renaming again — and Trash-undo needs the
-  trash metadata threaded through while Rename-undo needs an explicit-name backend command. Any new
-  Trash/Rename action **clears the redo stack** (a new mutation invalidates redo), so the stack
-  never replays a stale op.
+- ~~**Deferred (documented):** Trash and Rename via the history stack.~~ **DONE 2026-09-03 (commit
+  a77ac92).** `HistoryOp` became a `move | trash | rename` union; Trash-undo threads the `TrashItem`
+  metadata through and restores from trash, Rename-undo uses a new `rename_files(Vec<RenamePlan>)`
+  explicit-name backend command (both directions). Before this, any new Trash/Rename action still
+  **cleared the redo stack** (a new mutation invalidates redo); it now records a reversible op instead.
 
 ## Store (`useAppStore`)
 

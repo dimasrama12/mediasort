@@ -19,7 +19,7 @@ never the confusing v1 "single blob" auto-merge (that hierarchical `AIGroupFiles
    crate. Rationale: `image_hasher` pins its own `image` version and risks a resolver conflict
    with our pinned `image = 0.25` (limited features); a self-implemented dHash is ~15 lines,
    deterministic, and unit-testable with synthetic PNGs. §6.5 names dHash the default and pHash
-   the *option* — DCT-based pHash is deferred to a later optional sub-slice. Both are perceptual
+   the *option* — DCT-based pHash is deferred to a later optional sub-slice. **(DONE 2026-09-03, commit b9903f7: hand-rolled `phash()` = 32×32 → 2-D DCT-II → 8×8 low-freq → mean-threshold, a `HashAlgo` dispatcher, and a Settings dropdown; dHash stays the default.)** Both are perceptual
    hashes; "pHash" in the §12 headline is shorthand for perceptual hashing.
    - dHash: decode → `to_luma8` → `resize_exact(9, 8, Triangle)` → for each of 8 rows compare the
      8 adjacent horizontal pairs (left > right ⇒ 1) → 64 bits.
