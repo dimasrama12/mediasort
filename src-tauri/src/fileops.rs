@@ -3,6 +3,7 @@
 
 use crate::model::FileInfo;
 use crate::scan::build_file_info;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Return `target` if free, else the first `stem_N.ext` variant that doesn't exist.
@@ -61,8 +62,9 @@ pub async fn move_files(paths: Vec<String>, dest: String) -> Result<Vec<String>,
     Ok(out)
 }
 
-/// One planned rename: absolute source → absolute destination (same directory).
-#[derive(Debug, PartialEq)]
+/// One planned rename: absolute source → absolute destination. Serializable so the frontend can
+/// hand `rename_files` explicit `{from, to}` pairs for undo/redo.
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct RenamePlan {
     pub from: String,
     pub to: String,
@@ -112,8 +114,15 @@ pub fn apply_batch_rename(
     start: u32,
     pad: usize,
 ) -> Result<Vec<String>, String> {
-    let plans = plan_batch_rename(paths, pattern, start, pad);
+    apply_renames(&plan_batch_rename(paths, pattern, start, pad))
+}
 
+/// Execute explicit source→target renames on disk. Two-phase: every source is first moved to a
+/// unique temp name (freeing all final names, so an intra-batch reshuffle — including a straight
+/// swap a↔b — can't clash), then each temp is moved to its final target, `_N`-suffixed only on
+/// collision with a pre-existing *external* file. Returns the new absolute paths in input order.
+/// Shared core behind both batch rename and its undo/redo (`rename_files`).
+pub fn apply_renames(plans: &[RenamePlan]) -> Result<Vec<String>, String> {
     // Phase 1: sources -> unique temps.
     let mut temps: Vec<PathBuf> = Vec::with_capacity(plans.len());
     for (i, plan) in plans.iter().enumerate() {
@@ -144,6 +153,21 @@ pub async fn batch_rename(
     pad: u32,
 ) -> Result<Vec<FileInfo>, String> {
     let new_paths = apply_batch_rename(&paths, &pattern, start, pad as usize)?;
+    let mut out = Vec::with_capacity(new_paths.len());
+    for p in &new_paths {
+        out.push(
+            build_file_info(Path::new(p)).ok_or_else(|| format!("stat after rename failed: {p}"))?,
+        );
+    }
+    Ok(out)
+}
+
+/// Rename files to explicit target paths and return the rebuilt `FileInfo` per file. The undo/redo
+/// primitive for batch rename: undo renames each file back to its exact original name (the `{n}`
+/// pattern API can't express arbitrary per-file names), redo re-applies the new names.
+#[tauri::command]
+pub async fn rename_files(renames: Vec<RenamePlan>) -> Result<Vec<FileInfo>, String> {
+    let new_paths = apply_renames(&renames)?;
     let mut out = Vec::with_capacity(new_paths.len());
     for p in &new_paths {
         out.push(
@@ -266,5 +290,43 @@ mod tests {
         let out = apply_batch_rename(&paths, "Photo {n}", 1, 2).unwrap();
         assert_eq!(out[0], dir.path().join("Photo 01_1.jpg").to_string_lossy());
         assert!(dir.path().join("Photo 01_1.jpg").exists());
+    }
+
+    #[test]
+    fn apply_renames_hits_exact_targets_and_supports_undo_roundtrip() {
+        // The rename_files primitive must land on *exact* names (no pattern), both forward and back —
+        // that's what makes batch-rename undoable.
+        let dir = tempdir().unwrap();
+        let orig = dir.path().join("IMG_1234.jpg");
+        fs::write(&orig, b"x").unwrap();
+        let o = orig.to_string_lossy().to_string();
+        let r = dir.path().join("Trip 01.jpg").to_string_lossy().to_string();
+
+        let fwd = apply_renames(&[RenamePlan { from: o.clone(), to: r.clone() }]).unwrap();
+        assert_eq!(fwd, vec![r.clone()]);
+        assert!(Path::new(&r).exists() && !orig.exists());
+
+        let back = apply_renames(&[RenamePlan { from: r.clone(), to: o.clone() }]).unwrap();
+        assert_eq!(back, vec![o.clone()]); // exact original name, no _N suffix
+        assert!(orig.exists() && !Path::new(&r).exists());
+    }
+
+    #[test]
+    fn apply_renames_swaps_two_files_via_two_phase() {
+        // a↔b in one batch: each target briefly collides with a not-yet-moved source. The temp
+        // phase must let this succeed without spurious `_N` suffixes.
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("a.jpg"), b"A").unwrap();
+        fs::write(dir.path().join("b.jpg"), b"B").unwrap();
+        let a = dir.path().join("a.jpg").to_string_lossy().to_string();
+        let b = dir.path().join("b.jpg").to_string_lossy().to_string();
+        let out = apply_renames(&[
+            RenamePlan { from: a.clone(), to: b.clone() },
+            RenamePlan { from: b.clone(), to: a.clone() },
+        ])
+        .unwrap();
+        assert_eq!(out, vec![b.clone(), a.clone()]);
+        assert_eq!(fs::read_to_string(&a).unwrap(), "B"); // contents swapped
+        assert_eq!(fs::read_to_string(&b).unwrap(), "A");
     }
 }

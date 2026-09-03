@@ -214,8 +214,10 @@ pub async fn restore_from_trash(
     state: State<'_, TrashState>,
     id: String,
     dest: String,
-) -> Result<(), String> {
-    restore_in(&dir_of(&state)?, &id, &dest).map(|_| ())
+) -> Result<String, String> {
+    // Returns the actual restored path (collision-suffixed if `dest` was occupied) so an
+    // undo-trash can re-home the file entry exactly where it landed.
+    restore_in(&dir_of(&state)?, &id, &dest)
 }
 
 #[tauri::command]

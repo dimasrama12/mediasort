@@ -164,7 +164,7 @@ export function FileGrid() {
           e.preventDefault();
           const ids = sel.map((f) => f.id);
           void trashFiles(sel.map((f) => f.path))
-            .then(() => completeTrash(ids))
+            .then((items) => completeTrash(ids, items))
             .catch(() => {});
         }
         return;

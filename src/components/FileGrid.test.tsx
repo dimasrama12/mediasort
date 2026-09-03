@@ -19,6 +19,7 @@ vi.mock("../lib/commands", () => ({
       deletedAt: 0,
     })),
   ),
+  restoreFromTrash: vi.fn(async (_id: string, dest: string) => dest),
 }));
 
 import { FileGrid } from "./FileGrid";
@@ -143,6 +144,15 @@ test("Del with no selection trashes the focused file", async () => {
   fireEvent.keyDown(window, { key: "Delete" });
   await waitFor(() => expect(trashFiles).toHaveBeenCalledWith(["C:/x/a.jpg"]));
   await waitFor(() => expect(useAppStore.getState().files.map((f) => f.id)).toEqual(["b"]));
+});
+
+test("Ctrl+Z after Del restores the trashed file (undoable trash)", async () => {
+  useAppStore.setState({ files: [mk("a"), mk("b")], focusedId: "a", selectedIds: [], trashOpen: false, undoStack: [], redoStack: [] });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "Delete" });
+  await waitFor(() => expect(useAppStore.getState().files.map((f) => f.id)).toEqual(["b"]));
+  fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+  await waitFor(() => expect(useAppStore.getState().files.map((f) => f.id)).toEqual(["a", "b"]));
 });
 
 test("T toggles the trash panel (works with an empty grid)", () => {

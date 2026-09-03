@@ -59,6 +59,10 @@ export const batchRename = (
   pad: number,
 ): Promise<FileInfo[]> => invoke<FileInfo[]>("batch_rename", { paths, pattern, start, pad });
 
+/** Rename files to explicit target paths (undo/redo primitive); returns the rebuilt FileInfo. */
+export const renameFiles = (renames: { from: string; to: string }[]): Promise<FileInfo[]> =>
+  invoke<FileInfo[]>("rename_files", { renames });
+
 /** Group images by visual similarity (perceptual hash ≥ threshold). Emits `group-progress`. */
 export const groupVisual = (
   files: FileInfo[],
@@ -77,9 +81,9 @@ export const trashFiles = (paths: string[]): Promise<TrashItem[]> =>
 /** List app-trash items (newest-first). */
 export const listTrash = (): Promise<TrashItem[]> => invoke<TrashItem[]>("list_trash");
 
-/** Restore a trash item to `dest` (collision-suffixed on disk). */
-export const restoreFromTrash = (id: string, dest: string): Promise<void> =>
-  invoke<void>("restore_from_trash", { id, dest });
+/** Restore a trash item to `dest` (collision-suffixed on disk); returns the actual restored path. */
+export const restoreFromTrash = (id: string, dest: string): Promise<string> =>
+  invoke<string>("restore_from_trash", { id, dest });
 
 /** Empty the app trash to the OS Recycle Bin. */
 export const emptyTrash = (): Promise<void> => invoke<void>("empty_trash");

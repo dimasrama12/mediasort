@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from "vitest";
 import { useAppStore } from "./useAppStore";
-import type { FileGroup, FileInfo, FolderInfo } from "../lib/types";
+import type { FileGroup, FileInfo, FolderInfo, TrashItem } from "../lib/types";
 
 const mk = (id: string): FileInfo => ({
   id,
@@ -202,7 +202,9 @@ test("completeMove removes the file, advances focus, bumps count, records one un
   expect(s.focusedId).toBe("b");
   expect(s.folders[0].fileCount).toBe(1);
   expect(s.undoStack).toHaveLength(1);
-  expect(s.undoStack[0].moved[0].fromIndex).toBe(0);
+  const op = s.undoStack[0];
+  if (op.kind !== "move") throw new Error("expected a move op");
+  expect(op.moved[0].fromIndex).toBe(0);
 });
 
 test("completeMove on the last file focuses the new last", () => {
@@ -301,7 +303,9 @@ test("completeMoveMany moves all selected, records ONE grouped op, advances focu
   expect(s.focusedId).toBe("b"); // survivor at the lowest removed slot (0)
   expect(s.folders[0].fileCount).toBe(3);
   expect(s.undoStack).toHaveLength(1);
-  expect(s.undoStack[0].moved).toHaveLength(3);
+  const op = s.undoStack[0];
+  if (op.kind !== "move") throw new Error("expected a move op");
+  expect(op.moved).toHaveLength(3);
   expect(s.selectedIds).toEqual([]);
 });
 
@@ -354,7 +358,16 @@ test("setTrashItems replaces the list", () => {
   expect(useAppStore.getState().trashItems.map((t) => t.id)).toEqual(["t1"]);
 });
 
-test("completeTrash removes ids, advances focus, clears selection, leaves folders/history", () => {
+const mkTrash = (id: string, originalPath: string): TrashItem => ({
+  id,
+  originalPath,
+  trashPath: `C:/trash/${id}`,
+  name: originalPath,
+  size: 1,
+  deletedAt: 0,
+});
+
+test("completeTrash removes ids, advances focus, clears selection, records a trash undo op", () => {
   useAppStore.setState({
     files: [mk("a"), mk("b"), mk("c")],
     folders: [mkFolder("fam", 1)],
@@ -363,13 +376,62 @@ test("completeTrash removes ids, advances focus, clears selection, leaves folder
     undoStack: [],
     redoStack: [],
   });
-  useAppStore.getState().completeTrash(["a", "c"]);
+  useAppStore.getState().completeTrash(["a", "c"], [mkTrash("t-a", "a"), mkTrash("t-c", "c")]);
   const s = useAppStore.getState();
   expect(s.files.map((f) => f.id)).toEqual(["b"]);
   expect(s.focusedId).toBe("b");
   expect(s.selectedIds).toEqual([]);
   expect(s.folders[0].fileCount).toBe(0);
+  expect(s.undoStack).toHaveLength(1);
+  expect(s.undoStack[0].kind).toBe("trash");
+});
+
+test("trash undo restores at original indices; redo re-trashes with fresh entries", () => {
+  useAppStore.setState({ files: [mk("a"), mk("b"), mk("c")], focusedId: "a", selectedIds: ["a", "c"], undoStack: [], redoStack: [] });
+  useAppStore.getState().completeTrash(["a", "c"], [mkTrash("t-a", "a"), mkTrash("t-c", "c")]);
+  expect(useAppStore.getState().files.map((f) => f.id)).toEqual(["b"]);
+
+  // Undo: a (idx 0) and c (idx 2) go back to their slots.
+  useAppStore.getState().applyUndoTrash(["a", "c"]);
+  let s = useAppStore.getState();
+  expect(s.files.map((f) => f.id)).toEqual(["a", "b", "c"]);
   expect(s.undoStack).toEqual([]);
+  expect(s.redoStack).toHaveLength(1);
+
+  // Redo: re-trash both (fresh trash ids threaded onto the op).
+  useAppStore.getState().applyRedoTrash([mkTrash("t-a2", "a"), mkTrash("t-c2", "c")]);
+  s = useAppStore.getState();
+  expect(s.files.map((f) => f.id)).toEqual(["b"]);
+  expect(s.redoStack).toEqual([]);
+  expect(s.undoStack).toHaveLength(1);
+  const op = s.undoStack[0];
+  if (op.kind !== "trash") throw new Error("expected a trash op");
+  expect(op.trashed.map((t) => t.item.id)).toEqual(["t-a2", "t-c2"]);
+});
+
+test("completeRename records a rename undo op; undo reverts names; redo re-applies", () => {
+  useAppStore.setState({ files: [mk("a"), mk("b")], focusedId: "a", selectedIds: ["a"], renameOpen: true, undoStack: [], redoStack: [] });
+  const after: FileInfo = { ...mk("a"), id: "photo 01.jpg", path: "photo 01.jpg", name: "Photo 01.jpg" };
+  useAppStore.getState().completeRename(["a"], [after]);
+  let s = useAppStore.getState();
+  expect(s.files.map((f) => f.id)).toEqual(["photo 01.jpg", "b"]);
+  expect(s.focusedId).toBe("photo 01.jpg");
+  expect(s.renameOpen).toBe(false);
+  expect(s.undoStack).toHaveLength(1);
+  expect(s.undoStack[0].kind).toBe("rename");
+
+  useAppStore.getState().applyUndoRename();
+  s = useAppStore.getState();
+  expect(s.files.map((f) => f.id)).toEqual(["a", "b"]);
+  expect(s.focusedId).toBe("a");
+  expect(s.undoStack).toEqual([]);
+  expect(s.redoStack).toHaveLength(1);
+
+  useAppStore.getState().applyRedoRename();
+  s = useAppStore.getState();
+  expect(s.files.map((f) => f.id)).toEqual(["photo 01.jpg", "b"]);
+  expect(s.redoStack).toEqual([]);
+  expect(s.undoStack).toHaveLength(1);
 });
 
 test("reset clears trash; startScan keeps it", () => {
