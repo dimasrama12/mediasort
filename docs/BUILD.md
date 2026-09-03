@@ -10,9 +10,11 @@ The app is code-complete; this is the only remaining manual step.
 ```powershell
 npm run tauri build
 ```
-This runs `npm run build` (`tsc && vite build`) then bundles. Output:
+This runs `npm run build` (`tsc && vite build`) then bundles. Output (note: `.cargo/config.toml`
+redirects Cargo's `target-dir` to `D:/mediasort-target`, so the bundle lands there, **not** under
+`src-tauri/target`):
 ```
-src-tauri/target/release/bundle/nsis/MediaSort_0.1.0_x64-setup.exe
+D:/mediasort-target/release/bundle/nsis/MediaSort_0.1.0_x64-setup.exe
 ```
 
 ## Notes
