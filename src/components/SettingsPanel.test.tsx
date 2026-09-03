@@ -13,6 +13,7 @@ vi.mock("../lib/commands", () => ({
     sidebarWidth: 224,
     sidebarCollapsed: false,
     cachePath: null,
+    hashAlgorithm: "dhash",
   })),
 }));
 
@@ -38,6 +39,14 @@ test("changing theme persists the new theme", async () => {
   render(<SettingsPanel />);
   fireEvent.change(screen.getByLabelText("Theme"), { target: { value: "dark" } });
   expect(useAppStore.getState().settings.theme).toBe("dark");
+  await waitFor(() => expect(saveSettings).toHaveBeenCalled());
+});
+
+test("switching the hash algorithm to pHash updates the store and persists", async () => {
+  render(<SettingsPanel />);
+  expect(useAppStore.getState().settings.hashAlgorithm).toBe("dhash");
+  fireEvent.change(screen.getByLabelText("Hash algorithm"), { target: { value: "phash" } });
+  expect(useAppStore.getState().settings.hashAlgorithm).toBe("phash");
   await waitFor(() => expect(saveSettings).toHaveBeenCalled());
 });
 

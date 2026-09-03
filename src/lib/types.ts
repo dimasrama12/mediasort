@@ -64,6 +64,9 @@ export interface ProjectSummary {
 
 export type Theme = "light" | "dark" | "system";
 
+/** Perceptual hash used for visual grouping: fast dHash (default) or DCT-based pHash. */
+export type HashAlgorithm = "dhash" | "phash";
+
 export interface AppSettings {
   similarityThreshold: number;
   timeWindowHours: number;
@@ -74,6 +77,7 @@ export interface AppSettings {
   sidebarWidth: number;
   sidebarCollapsed: boolean;
   cachePath: string | null;
+  hashAlgorithm: HashAlgorithm;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -86,4 +90,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sidebarWidth: 224,
   sidebarCollapsed: false,
   cachePath: null,
+  hashAlgorithm: "dhash",
 };

@@ -38,7 +38,7 @@ export function Toolbar() {
     try {
       const groups =
         mode === "visual"
-          ? await groupVisual(files, settings.similarityThreshold)
+          ? await groupVisual(files, settings.similarityThreshold, settings.hashAlgorithm)
           : await groupTemporal(files, settings.timeWindowHours);
       applyGroups(groups, mode);
     } finally {

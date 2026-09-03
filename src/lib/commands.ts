@@ -5,6 +5,7 @@ import type {
   FileGroup,
   FileInfo,
   FolderInfo,
+  HashAlgorithm,
   Project,
   ProjectSummary,
   TrashItem,
@@ -58,9 +59,12 @@ export const batchRename = (
   pad: number,
 ): Promise<FileInfo[]> => invoke<FileInfo[]>("batch_rename", { paths, pattern, start, pad });
 
-/** Group images by visual similarity (dHash ≥ threshold). Emits `group-progress`. */
-export const groupVisual = (files: FileInfo[], threshold: number): Promise<FileGroup[]> =>
-  invoke<FileGroup[]>("group_visual", { files, threshold });
+/** Group images by visual similarity (perceptual hash ≥ threshold). Emits `group-progress`. */
+export const groupVisual = (
+  files: FileInfo[],
+  threshold: number,
+  algo: HashAlgorithm,
+): Promise<FileGroup[]> => invoke<FileGroup[]>("group_visual", { files, threshold, algo });
 
 /** Group all files into temporal bursts within `hours` (EXIF dateTaken, else mtime). */
 export const groupTemporal = (files: FileInfo[], hours: number): Promise<FileGroup[]> =>

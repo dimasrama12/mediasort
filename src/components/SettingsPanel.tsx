@@ -1,9 +1,13 @@
 import { useEffect } from "react";
 import { useAppStore } from "../store/useAppStore";
 import { saveSettings, resetSettings } from "../lib/commands";
-import type { AppSettings, Theme } from "../lib/types";
+import type { AppSettings, HashAlgorithm, Theme } from "../lib/types";
 
 const THEMES: Theme[] = ["light", "dark", "system"];
+const HASH_ALGOS: { value: HashAlgorithm; label: string }[] = [
+  { value: "dhash", label: "dHash — fast (default)" },
+  { value: "phash", label: "pHash — DCT, more robust" },
+];
 
 export function SettingsPanel() {
   const settingsOpen = useAppStore((s) => s.settingsOpen);
@@ -59,6 +63,22 @@ export function SettingsPanel() {
             onChange={(e) => patch({ similarityThreshold: Number(e.target.value) })}
             aria-label="Similarity threshold"
           />
+        </label>
+
+        <label className="text-xs text-[var(--muted)] flex flex-col gap-1">
+          Similar-photo hashing
+          <select
+            value={settings.hashAlgorithm}
+            onChange={(e) => patch({ hashAlgorithm: e.target.value as HashAlgorithm })}
+            aria-label="Hash algorithm"
+            className="px-2 py-1 rounded bg-[var(--elevated)] text-sm outline-none"
+          >
+            {HASH_ALGOS.map((a) => (
+              <option key={a.value} value={a.value}>
+                {a.label}
+              </option>
+            ))}
+          </select>
         </label>
 
         <label className="text-xs text-[var(--muted)] flex flex-col gap-1">

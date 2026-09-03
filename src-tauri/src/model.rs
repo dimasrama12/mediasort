@@ -75,6 +75,13 @@ pub enum Theme {
     System,
 }
 
+/// The perceptual hash `group_visual` uses: `"dhash"` (fast, default) or `"phash"` (DCT-based,
+/// more robust to gamma/scale). A plain string keeps the IPC surface simple; the backend maps
+/// unknown values to dHash.
+fn default_hash_algorithm() -> String {
+    "dhash".to_string()
+}
+
 /// Persisted app settings (§4). JSON at `app_data/settings.json`.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -88,6 +95,10 @@ pub struct AppSettings {
     pub sidebar_width: u16,
     pub sidebar_collapsed: bool,
     pub cache_path: Option<String>,
+    // Added with the pHash option; `#[serde(default)]` lets a settings.json written before this
+    // field existed load cleanly (fills "dhash") instead of failing and wiping every other value.
+    #[serde(default = "default_hash_algorithm")]
+    pub hash_algorithm: String,
 }
 
 impl Default for AppSettings {
@@ -102,6 +113,7 @@ impl Default for AppSettings {
             sidebar_width: 224,
             sidebar_collapsed: false,
             cache_path: None,
+            hash_algorithm: default_hash_algorithm(),
         }
     }
 }
@@ -201,13 +213,28 @@ mod tests {
         assert_eq!(d.time_window_hours, 1.0);
         assert_eq!(d.min_group_size, 2);
         assert_eq!(d.theme, Theme::System);
+        assert_eq!(d.hash_algorithm, "dhash");
         let j = serde_json::to_string(&d).unwrap();
         assert!(j.contains("\"similarityThreshold\":80"));
         assert!(j.contains("\"timeWindowHours\":1.0"));
         assert!(j.contains("\"theme\":\"system\""));
+        assert!(j.contains("\"hashAlgorithm\":\"dhash\""));
         // round-trips through serde
         let back: AppSettings = serde_json::from_str(&j).unwrap();
         assert_eq!(back, d);
+    }
+
+    #[test]
+    fn appsettings_without_hash_algorithm_defaults_it() {
+        // A settings.json written before the pHash option existed (no hashAlgorithm key) must load,
+        // filling the default rather than failing to deserialize.
+        let json = r#"{"similarityThreshold":70,"timeWindowHours":2.0,"minGroupSize":2,
+            "theme":"dark","defaultView":"grid","thumbnailSize":200,"sidebarWidth":224,
+            "sidebarCollapsed":false,"cachePath":null}"#;
+        let s: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(s.similarity_threshold, 70);
+        assert_eq!(s.theme, Theme::Dark);
+        assert_eq!(s.hash_algorithm, "dhash");
     }
 
     #[test]

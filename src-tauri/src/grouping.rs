@@ -1,7 +1,7 @@
 //! Grouping (§6.5): perceptual near-duplicate clustering (visual) + burst/session
 //! clustering (temporal). The clustering core is pure and IO-free so it unit-tests
-//! without the filesystem; only `dhash` touches disk. Commands + progress events are
-//! wired in slice #7b, hence `#![allow(dead_code)]` for now.
+//! without the filesystem; only `dhash`/`phash` touch disk. Commands + progress events
+//! are wired in slice #7b, hence `#![allow(dead_code)]` for now.
 #![allow(dead_code)]
 
 use crate::model::{FileGroup, FileInfo, FileType, GroupType};
@@ -55,6 +55,117 @@ pub fn hamming(a: u64, b: u64) -> u32 {
 /// Similarity on v1's 0..=100 scale: `100 - distance*100/64`.
 pub fn similarity(a: u64, b: u64) -> u32 {
     100 - hamming(a, b) * 100 / 64
+}
+
+/// Which perceptual hash `group_visual` uses. dHash is the fast default; pHash (DCT) is the
+/// more robust option (§6.5 names dHash the default and pHash the *option*).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HashAlgo {
+    DHash,
+    PHash,
+}
+
+impl HashAlgo {
+    /// Parse the frontend's lowercase tag; anything but `"phash"` ⇒ the safe `DHash` default.
+    pub fn from_tag(tag: &str) -> HashAlgo {
+        match tag {
+            "phash" => HashAlgo::PHash,
+            _ => HashAlgo::DHash,
+        }
+    }
+}
+
+/// Perceptual hash of `path` by the chosen algorithm; `None` if the image can't be decoded
+/// (videos, HEIC/SVG without decoders, corrupt files) — those are skipped, exactly like `dhash`.
+pub fn hash_image(path: &Path, algo: HashAlgo) -> Option<u64> {
+    match algo {
+        HashAlgo::DHash => dhash(path),
+        HashAlgo::PHash => phash(path),
+    }
+}
+
+/// Side length of the pHash working image; the DCT keeps only its low-frequency corner.
+const PHASH_N: usize = 32;
+
+/// 64-bit DCT perceptual hash (pHash): grayscale → 32×32 → 2-D DCT-II → keep the top-left
+/// 8×8 low-frequency block → bit = coefficient > the block's mean (excluding the DC term).
+/// Compared to dHash it survives gamma, blur, and scaling far better, at ~65k extra multiplies
+/// per image. Returns `None` on an undecodable file (same contract as `dhash`).
+pub fn phash(path: &Path) -> Option<u64> {
+    let img = image::open(path).ok()?;
+    let small = img
+        .resize_exact(PHASH_N as u32, PHASH_N as u32, FilterType::Triangle)
+        .to_luma8();
+    let mut f = [[0f64; PHASH_N]; PHASH_N];
+    for y in 0..PHASH_N {
+        for x in 0..PHASH_N {
+            f[y][x] = small.get_pixel(x as u32, y as u32).0[0] as f64;
+        }
+    }
+    let dct = dct2d(&f);
+
+    // Top-left 8×8 low-frequency block, row-major into 64 slots.
+    let mut block = [0f64; 64];
+    for v in 0..8 {
+        for u in 0..8 {
+            block[v * 8 + u] = dct[v][u];
+        }
+    }
+    // Mean of the block *excluding* the DC term (block[0]); the DC dwarfs the AC coefficients
+    // and would drag the threshold, so it's left out of the average (canonical pHash).
+    let mean = block[1..].iter().sum::<f64>() / 63.0;
+    let mut hash = 0u64;
+    for (i, &c) in block.iter().enumerate() {
+        if c > mean {
+            hash |= 1u64 << i;
+        }
+    }
+    Some(hash)
+}
+
+/// Separable 2-D DCT-II of an N×N matrix: transform every row, then every column, reusing one
+/// precomputed cosine table. Orthonormal scaling (`C(0)=√(1/N)`, else `√(2/N)`) — its exact value
+/// is immaterial to the hash (a per-frequency constant), but faithful scaling keeps it a real DCT.
+fn dct2d(f: &[[f64; PHASH_N]; PHASH_N]) -> [[f64; PHASH_N]; PHASH_N] {
+    const N: usize = PHASH_N;
+    let mut cos_tab = [[0f64; N]; N];
+    for k in 0..N {
+        for x in 0..N {
+            cos_tab[k][x] =
+                ((2 * x + 1) as f64 * k as f64 * std::f64::consts::PI / (2.0 * N as f64)).cos();
+        }
+    }
+    let c = |k: usize| {
+        if k == 0 {
+            (1.0 / N as f64).sqrt()
+        } else {
+            (2.0 / N as f64).sqrt()
+        }
+    };
+
+    // Rows: g[y][u] = C(u) · Σ_x f[y][x]·cos((2x+1)uπ/2N)
+    let mut g = [[0f64; N]; N];
+    for y in 0..N {
+        for u in 0..N {
+            let mut s = 0.0;
+            for x in 0..N {
+                s += f[y][x] * cos_tab[u][x];
+            }
+            g[y][u] = c(u) * s;
+        }
+    }
+    // Columns: F[v][u] = C(v) · Σ_y g[y][u]·cos((2y+1)vπ/2N)
+    let mut out = [[0f64; N]; N];
+    for u in 0..N {
+        for v in 0..N {
+            let mut s = 0.0;
+            for y in 0..N {
+                s += g[y][u] * cos_tab[v][y];
+            }
+            out[v][u] = c(v) * s;
+        }
+    }
+    out
 }
 
 /// Greedy visual clustering (§6.5): scan order; each ungrouped file seeds a group and
@@ -175,16 +286,18 @@ struct GroupProgress {
     total: usize,
 }
 
-/// Group images by visual similarity. Hashes every image (emitting `group-progress`
-/// per file, like `scan_folders`), then greedily clusters at `threshold`. Non-images
-/// and undecodable files are skipped. Runs inline in the async command (same pattern as
-/// the scan walk); returns `FileGroup[]` without mutating any `FileInfo`.
+/// Group images by visual similarity. Hashes every image by the chosen `algo` (dHash default,
+/// pHash option — emitting `group-progress` per file, like `scan_folders`), then greedily
+/// clusters at `threshold`. Non-images and undecodable files are skipped. Runs inline in the
+/// async command (same pattern as the scan walk); returns `FileGroup[]` without mutating `FileInfo`.
 #[tauri::command]
 pub async fn group_visual(
     app: AppHandle,
     files: Vec<FileInfo>,
     threshold: u32,
+    algo: Option<String>,
 ) -> Result<Vec<FileGroup>, String> {
+    let algo = HashAlgo::from_tag(algo.as_deref().unwrap_or("dhash"));
     let images: Vec<&FileInfo> = files
         .iter()
         .filter(|f| f.file_type == FileType::Image)
@@ -192,7 +305,7 @@ pub async fn group_visual(
     let total = images.len();
     let mut hashed: Vec<Hashed> = Vec::with_capacity(total);
     for (i, f) in images.iter().enumerate() {
-        if let Some(hash) = dhash(Path::new(&f.path)) {
+        if let Some(hash) = hash_image(Path::new(&f.path), algo) {
             hashed.push(Hashed { id: f.id.clone(), hash });
         }
         app.emit("group-progress", GroupProgress { done: i + 1, total })
@@ -258,6 +371,59 @@ mod tests {
         let bad = dir.path().join("x.png");
         std::fs::write(&bad, b"not a real png").unwrap();
         assert!(dhash(&bad).is_none());
+    }
+
+    #[test]
+    fn phash_identical_is_equal_and_undecodable_is_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.png");
+        let b = dir.path().join("b.png"); // byte-identical content
+        write_gray(&a, |x| if x < 8 { 20 } else { 200 });
+        write_gray(&b, |x| if x < 8 { 20 } else { 200 });
+        assert_eq!(phash(&a).unwrap(), phash(&b).unwrap(), "same image ⇒ same pHash");
+
+        let bad = dir.path().join("x.png");
+        std::fs::write(&bad, b"not a real png").unwrap();
+        assert!(phash(&bad).is_none());
+    }
+
+    #[test]
+    fn phash_distinguishes_a_pattern_from_its_inverse() {
+        let dir = tempfile::tempdir().unwrap();
+        let vert = dir.path().join("v.png");
+        let inv = dir.path().join("i.png");
+        write_gray(&vert, |x| if x < 8 { 0 } else { 255 });
+        write_gray(&inv, |x| if x < 8 { 255 } else { 0 }); // left/right swapped
+        assert!(
+            hamming(phash(&vert).unwrap(), phash(&inv).unwrap()) > 0,
+            "an inverted pattern must not collide"
+        );
+    }
+
+    #[test]
+    fn phash_is_nondegenerate_on_a_gradient() {
+        // A real DCT of a gradient yields a mix of set/unset bits; an all-0 or all-1 hash would
+        // mean the transform (or the mean threshold) is broken.
+        let dir = tempfile::tempdir().unwrap();
+        let g = dir.path().join("g.png");
+        GrayImage::from_fn(64, 64, |x, y| Luma([((x + y) * 2) as u8]))
+            .save(&g)
+            .unwrap();
+        let bits = phash(&g).unwrap().count_ones();
+        assert!(bits > 0 && bits < 64, "degenerate pHash: {bits} bits set");
+    }
+
+    #[test]
+    fn hash_image_dispatches_by_algo_and_from_tag_defaults_safely() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.png");
+        write_gray(&a, |x| if x < 8 { 30 } else { 220 });
+        assert_eq!(hash_image(&a, HashAlgo::DHash), dhash(&a));
+        assert_eq!(hash_image(&a, HashAlgo::PHash), phash(&a));
+
+        assert_eq!(HashAlgo::from_tag("phash"), HashAlgo::PHash);
+        assert_eq!(HashAlgo::from_tag("dhash"), HashAlgo::DHash);
+        assert_eq!(HashAlgo::from_tag("garbage"), HashAlgo::DHash); // unknown ⇒ safe default
     }
 
     #[test]
