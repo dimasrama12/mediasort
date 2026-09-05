@@ -1,6 +1,7 @@
 //! Shared IPC data types (mirrored in src/lib/types.ts).
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -40,6 +41,11 @@ pub struct FileInfo {
 pub enum GroupType {
     Visual,
     Temporal,
+    /// Client-side "Group by → Date" (calendar day) — no backend clustering, but the variant
+    /// exists so a project saved while date-grouped round-trips through project.rs.
+    Date,
+    /// Client-side "Group by → Type" (by extension) — same rationale as `Date`.
+    Type,
 }
 
 /// A cluster of related files. `file_ids` reference `FileInfo.id` (normalized path),
@@ -99,6 +105,26 @@ pub struct AppSettings {
     // field existed load cleanly (fills "dhash") instead of failing and wiping every other value.
     #[serde(default = "default_hash_algorithm")]
     pub hash_algorithm: String,
+    /// Scratch-disk folder whose *contents* are emptied whenever the app closes (§1). `None`
+    /// disables the auto-clean. `#[serde(default)]` keeps older settings.json files loadable.
+    #[serde(default)]
+    pub scratch_path: Option<String>,
+    /// Walk sub-folders when scanning a root, instead of listing only what sits directly in it.
+    ///
+    /// Off by default, and that default is a bug fix: a target folder living inside the scanned
+    /// root ("random/contoh 1") is somewhere files have already been filed *to*, so a recursive
+    /// scan handed every filed photo straight back to the library it was filed out of. The
+    /// registry of targets is session-only, so on a fresh launch there is nothing to exclude
+    /// either — only the depth limit holds in every case. `#[serde(default)]` keeps older
+    /// settings.json files loadable, and lands them on the safe behaviour.
+    #[serde(default)]
+    pub scan_subfolders: bool,
+    /// Customizable keybindings: action id → one or more canonical combo strings (e.g. `"Ctrl+O"`,
+    /// `"Delete"`). The frontend owns the defaults and merges them under any stored overrides, so an
+    /// empty map here simply means "all defaults". Persisted verbatim; `#[serde(default)]` for
+    /// back-compat with settings.json written before this field existed.
+    #[serde(default)]
+    pub keybindings: BTreeMap<String, Vec<String>>,
 }
 
 impl Default for AppSettings {
@@ -114,6 +140,9 @@ impl Default for AppSettings {
             sidebar_collapsed: false,
             cache_path: None,
             hash_algorithm: default_hash_algorithm(),
+            scratch_path: None,
+            scan_subfolders: false,
+            keybindings: BTreeMap::new(),
         }
     }
 }

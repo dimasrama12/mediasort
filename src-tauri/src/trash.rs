@@ -9,6 +9,9 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
 
+/// How many `_restored_N` variants to try before giving up rather than looping forever.
+const MAX_COLLISION_TRIES: u32 = 10_000;
+
 pub fn metadata_path(trash_dir: &Path) -> PathBuf {
     trash_dir.join("trash.json")
 }
@@ -20,13 +23,21 @@ pub fn load_metadata(trash_dir: &Path) -> BTreeMap<String, TrashItem> {
     }
 }
 
+/// Write the index **atomically**: temp sibling, then rename over the target.
+///
+/// `std::fs::write` truncates first, so a crash mid-write leaves a truncated `trash.json` - and
+/// `load_metadata` falls back to an empty map on a parse error, which would silently orphan every
+/// file still sitting in the trash directory. A rename is the only step that can be interrupted,
+/// and on every filesystem this app runs on it is atomic.
 pub fn save_metadata(
     trash_dir: &Path,
     map: &BTreeMap<String, TrashItem>,
 ) -> Result<(), String> {
     let s = serde_json::to_string_pretty(map).map_err(|e| e.to_string())?;
-    std::fs::write(metadata_path(trash_dir), s).map_err(|e| e.to_string())
+    crate::fileops::write_atomic(&metadata_path(trash_dir), s.as_bytes())
 }
+
+
 
 fn now_nanos() -> u128 {
     SystemTime::now()
@@ -128,9 +139,43 @@ pub fn stats_in(trash_dir: &Path) -> Result<TrashStats, String> {
     })
 }
 
+/// Is `id` a bare trash entry name - one path segment, no traversal, no separators, no drive?
+///
+/// **This is a security boundary, not a tidiness check.** `restore_in` used to build its source as
+/// `trash_dir.join(id)` and check only that the result *existed*, so an `id` of
+/// `..\..\Users\Me\Documents\tax.pdf` escaped the trash directory and `dest` chose where the
+/// file landed: an arbitrary file-move primitive reachable from one `invoke`. Membership in
+/// `trash.json` is the real check (below); this is the cheap structural one in front of it, the
+/// same discipline `project.rs::sanitize` already applies to project ids.
+pub fn id_is_bare(id: &str) -> bool {
+    !id.is_empty()
+        && id != "trash.json"
+        && !id.contains('/')
+        && !id.contains('\\')
+        && !id.contains(':')
+        && id != "."
+        && id != ".."
+        && !id.contains('\0')
+}
+
 /// Restore `trash_dir/id` to `dest_path`, suffixing `_restored_N` on collision.
+///
+/// `id` must be a bare entry name **and** a key of `trash.json` (or, for an entry that predates
+/// the index, a direct child of the trash directory) - see `id_is_bare`.
 pub fn restore_in(trash_dir: &Path, id: &str, dest_path: &str) -> Result<String, String> {
+    if !id_is_bare(id) {
+        return Err("invalid trash id".to_string());
+    }
     let entry = trash_dir.join(id);
+    // Belt and braces: even a bare name could be a symlink or junction planted in the trash dir,
+    // so confirm the resolved entry really sits inside the trash directory.
+    let within = match (entry.canonicalize(), trash_dir.canonicalize()) {
+        (Ok(e), Ok(root)) => e.starts_with(&root),
+        _ => false,
+    };
+    if !within {
+        return Err("item not found in trash".to_string());
+    }
     if !entry.exists() {
         return Err("item not found in trash".to_string());
     }
@@ -143,18 +188,22 @@ pub fn restore_in(trash_dir: &Path, id: &str, dest_path: &str) -> Result<String,
             .to_string_lossy()
             .to_string();
         let ext = target.extension().map(|e| e.to_string_lossy().to_string());
-        let mut n = 1;
-        loop {
+        // Bounded: an unbounded `loop { n += 1 }` spins forever on a directory that somehow
+        // holds every candidate, which is a hang the user cannot escape.
+        let mut found = None;
+        for n in 1..=MAX_COLLISION_TRIES {
             let cand = dir.join(match &ext {
                 Some(e) => format!("{stem}_restored_{n}.{e}"),
                 None => format!("{stem}_restored_{n}"),
             });
             if !cand.exists() {
-                target = cand;
+                found = Some(cand);
                 break;
             }
-            n += 1;
         }
+        target = found.ok_or_else(|| {
+            format!("could not find a free name for {stem} after {MAX_COLLISION_TRIES} tries")
+        })?;
     }
     if std::fs::rename(&entry, &target).is_err() {
         std::fs::copy(&entry, &target).map_err(|e| e.to_string())?;
@@ -199,8 +248,10 @@ fn dir_of(state: &State<'_, TrashState>) -> Result<PathBuf, String> {
 #[tauri::command]
 pub async fn trash_files(
     state: State<'_, TrashState>,
+    scope: State<'_, crate::guard::AccessScope>,
     paths: Vec<String>,
 ) -> Result<Vec<TrashItem>, String> {
+    scope.check_all(&paths)?;
     trash_files_in(&dir_of(&state)?, &paths)
 }
 
@@ -212,9 +263,13 @@ pub async fn list_trash(state: State<'_, TrashState>) -> Result<Vec<TrashItem>, 
 #[tauri::command]
 pub async fn restore_from_trash(
     state: State<'_, TrashState>,
+    scope: State<'_, crate::guard::AccessScope>,
     id: String,
     dest: String,
 ) -> Result<String, String> {
+    // `id` is validated against the trash directory inside `restore_in`; `dest` is where the file
+    // lands, and is the half the caller controls freely.
+    scope.check(&dest)?;
     // Returns the actual restored path (collision-suffixed if `dest` was occupied) so an
     // undo-trash can re-home the file entry exactly where it landed.
     restore_in(&dir_of(&state)?, &id, &dest)
@@ -343,4 +398,68 @@ mod tests {
         assert!(load_metadata(&trash_dir).is_empty());
         assert!(metadata_path(&trash_dir).exists()); // reset to {}
     }
+    #[test]
+    fn restore_refuses_a_traversal_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let trash_dir = dir.path().join("trash");
+        std::fs::create_dir_all(&trash_dir).unwrap();
+        // A real file outside the trash that a traversal id would otherwise be able to move.
+        let outside = dir.path().join("secret.txt");
+        std::fs::write(&outside, b"private").unwrap();
+        let dest = dir.path().join("stolen.txt");
+
+        for bad in [
+            r"..\secret.txt",
+            "../secret.txt",
+            "..",
+            ".",
+            "trash.json",
+            r"C:\Windows\System32\drivers\etc\hosts",
+        ] {
+            assert!(
+                restore_in(&trash_dir, bad, &dest.to_string_lossy()).is_err(),
+                "traversal id must be refused: {bad}"
+            );
+        }
+        assert!(outside.exists(), "the outside file must still be where it was");
+        assert!(!dest.exists(), "nothing may have been moved");
+    }
+
+    #[test]
+    fn id_is_bare_accepts_real_ids_and_rejects_the_rest() {
+        assert!(id_is_bare("trash_1234_photo.jpg"));
+        assert!(!id_is_bare(""));
+        assert!(!id_is_bare("trash.json"));
+        assert!(!id_is_bare("a/b"));
+        assert!(!id_is_bare(r"a\b"));
+        assert!(!id_is_bare("C:file"));
+        assert!(!id_is_bare(".."));
+    }
+
+    #[test]
+    fn metadata_writes_are_atomic_and_leave_no_temp_behind() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut map = BTreeMap::new();
+        map.insert(
+            "trash_1_a.jpg".to_string(),
+            TrashItem {
+                id: "trash_1_a.jpg".into(),
+                original_path: "D:/a.jpg".into(),
+                trash_path: "D:/trash/trash_1_a.jpg".into(),
+                name: "a.jpg".into(),
+                size: 1,
+                deleted_at: 0,
+            },
+        );
+        save_metadata(dir.path(), &map).unwrap();
+        assert_eq!(load_metadata(dir.path()).len(), 1);
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.contains(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "temp file left behind: {leftovers:?}");
+    }
+
 }

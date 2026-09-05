@@ -102,8 +102,17 @@ pub fn save_project(state: State<'_, ProjectState>, project: Project) -> Result<
 }
 
 #[tauri::command]
-pub fn load_project(state: State<'_, ProjectState>, id: String) -> Result<Project, String> {
-    load_project_in(&dir_of(&state)?, &id)
+pub fn load_project(
+    state: State<'_, ProjectState>,
+    scope: State<'_, crate::guard::AccessScope>,
+    id: String,
+) -> Result<Project, String> {
+    let project = load_project_in(&dir_of(&state)?, &id)?;
+    // Loading a project restores a whole session without a scan, so it has to restore the
+    // session's write scope too, or every move in it would be refused (see guard.rs).
+    scope.allow_all(&project.roots);
+    scope.allow_all(project.folders.iter().map(|f| &f.path));
+    Ok(project)
 }
 
 #[tauri::command]

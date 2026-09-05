@@ -264,7 +264,8 @@ test("selectRangeTo yields the inclusive file-order range from the anchor (both 
   useAppStore.setState({ files: [mk("a"), mk("b"), mk("c"), mk("d")], selectedIds: [], focusedId: "b" });
   useAppStore.getState().selectRangeTo("d");
   expect(useAppStore.getState().selectedIds).toEqual(["b", "c", "d"]);
-  expect(useAppStore.getState().focusedId).toBe("b"); // anchor unchanged
+  expect(useAppStore.getState().anchorId).toBe("b"); // anchor unchanged
+  expect(useAppStore.getState().focusedId).toBe("d"); // focus follows the far end
   useAppStore.getState().selectRangeTo("a"); // extend the other way from the same anchor
   expect(useAppStore.getState().selectedIds).toEqual(["a", "b"]);
 });
@@ -284,7 +285,7 @@ test("startScan and reset clear the selection", () => {
   expect(useAppStore.getState().selectedIds).toEqual([]);
 });
 
-test("completeMoveMany moves all selected, records ONE grouped op, advances focus, clears selection", () => {
+test("completeMoveMany moves all selected, records ONE grouped op, carries the cursor to the survivor", () => {
   useAppStore.setState({
     files: [mk("a"), mk("b"), mk("c"), mk("d"), mk("e")],
     folders: [mkFolder("fam", 1)],
@@ -306,7 +307,7 @@ test("completeMoveMany moves all selected, records ONE grouped op, advances focu
   const op = s.undoStack[0];
   if (op.kind !== "move") throw new Error("expected a move op");
   expect(op.moved).toHaveLength(3);
-  expect(s.selectedIds).toEqual([]);
+  expect(s.selectedIds).toEqual(["b"]); // the survivor is selected, ready for the next keystroke
 });
 
 test("completeMoveMany + ONE applyUndoMove reconstructs the original array and order (grouped)", () => {
@@ -367,7 +368,7 @@ const mkTrash = (id: string, originalPath: string): TrashItem => ({
   deletedAt: 0,
 });
 
-test("completeTrash removes ids, advances focus, clears selection, records a trash undo op", () => {
+test("completeTrash removes ids, carries the cursor to the survivor, records a trash undo op", () => {
   useAppStore.setState({
     files: [mk("a"), mk("b"), mk("c")],
     folders: [mkFolder("fam", 1)],
@@ -380,10 +381,144 @@ test("completeTrash removes ids, advances focus, clears selection, records a tra
   const s = useAppStore.getState();
   expect(s.files.map((f) => f.id)).toEqual(["b"]);
   expect(s.focusedId).toBe("b");
-  expect(s.selectedIds).toEqual([]);
+  expect(s.selectedIds).toEqual(["b"]);
   expect(s.folders[0].fileCount).toBe(0);
   expect(s.undoStack).toHaveLength(1);
   expect(s.undoStack[0].kind).toBe("trash");
+});
+
+// ---- The deletion selection jump (§1) -----------------------------------------------------
+// The cursor used to be re-homed with the removed file's index in the raw `files` array. That is
+// the scan order; the grid renders the *sorted* order, so trashing the second tile could drop the
+// cursor a dozen tiles away. These pin the cursor to the render order the grid publishes.
+
+test("trashing a file lands the cursor on the next file IN RENDER ORDER, not scan order", () => {
+  // Scanned a..e; the grid is sorted so it renders e, d, c, b, a.
+  useAppStore.setState({
+    files: [mk("a"), mk("b"), mk("c"), mk("d"), mk("e")],
+    visibleIds: ["e", "d", "c", "b", "a"],
+    focusedId: "d",
+    selectedIds: ["d"],
+    undoStack: [],
+    redoStack: [],
+  });
+  useAppStore.getState().completeTrash(["d"], [mkTrash("t-d", "d")]);
+  const s = useAppStore.getState();
+  // "d" is rendered 2nd, so the cursor takes the 2nd slot — now "c". The old raw-index maths
+  // would have used d's scan index (3) and landed on "e".
+  expect(s.focusedId).toBe("c");
+  expect(s.selectedIds).toEqual(["c"]);
+});
+
+test("trashing the last file in render order steps back to the new last", () => {
+  useAppStore.setState({
+    files: [mk("a"), mk("b"), mk("c")],
+    visibleIds: ["c", "b", "a"],
+    focusedId: "a",
+    selectedIds: ["a"],
+    undoStack: [],
+    redoStack: [],
+  });
+  useAppStore.getState().completeTrash(["a"], [mkTrash("t-a", "a")]);
+  const s = useAppStore.getState();
+  expect(s.focusedId).toBe("b");
+  expect(s.selectedIds).toEqual(["b"]);
+});
+
+test("trashing every file leaves no cursor and no selection", () => {
+  useAppStore.setState({
+    files: [mk("a"), mk("b")],
+    visibleIds: ["b", "a"],
+    focusedId: "b",
+    selectedIds: ["a", "b"],
+    undoStack: [],
+    redoStack: [],
+  });
+  useAppStore
+    .getState()
+    .completeTrash(["a", "b"], [mkTrash("t-a", "a"), mkTrash("t-b", "b")]);
+  const s = useAppStore.getState();
+  expect(s.focusedId).toBeNull();
+  expect(s.selectedIds).toEqual([]);
+});
+
+test("moving files to a folder lands the cursor in render order too", () => {
+  useAppStore.setState({
+    files: [mk("a"), mk("b"), mk("c"), mk("d")],
+    folders: [mkFolder("fam", 1)],
+    visibleIds: ["d", "c", "b", "a"],
+    focusedId: "c",
+    selectedIds: ["c"],
+    undoStack: [],
+    redoStack: [],
+  });
+  useAppStore.getState().completeMoveMany(["c"], "fam", ["C:/base/fam/c"]);
+  const s = useAppStore.getState();
+  expect(s.focusedId).toBe("b");
+  expect(s.selectedIds).toEqual(["b"]);
+});
+
+test("permanently deleting lands the cursor in render order too", () => {
+  useAppStore.setState({
+    files: [mk("a"), mk("b"), mk("c")],
+    visibleIds: ["c", "b", "a"],
+    focusedId: "c",
+    selectedIds: ["c"],
+    scanned: 3,
+  });
+  useAppStore.getState().completePermanentDelete(["c"]);
+  const s = useAppStore.getState();
+  expect(s.focusedId).toBe("b");
+  expect(s.selectedIds).toEqual(["b"]);
+});
+
+test("emptying the trash leaves the grid cursor alone", () => {
+  useAppStore.setState({
+    files: [mk("a"), mk("b")],
+    visibleIds: ["b", "a"],
+    focusedId: "a",
+    selectedIds: ["a"],
+  });
+  // Trash paths match nothing in the grid — nothing left the grid, so nothing should move.
+  useAppStore.getState().completePermanentDelete(["C:/trash/x", "C:/trash/y"]);
+  const s = useAppStore.getState();
+  expect(s.files.map((f) => f.id)).toEqual(["a", "b"]);
+  expect(s.focusedId).toBe("a");
+  expect(s.selectedIds).toEqual(["a"]);
+});
+
+test("trashing a file puts it in the trash list at once, and undo takes it back out", () => {
+  useAppStore.setState({
+    files: [mk("a"), mk("b")],
+    visibleIds: ["a", "b"],
+    trashItems: [],
+    focusedId: "a",
+    selectedIds: ["a"],
+    undoStack: [],
+    redoStack: [],
+  });
+  useAppStore.getState().completeTrash(["a"], [mkTrash("t-a", "a")]);
+  // The corner button's whole content is this number, so it has to be right immediately —
+  // not once something else happens to re-read the trash.
+  expect(useAppStore.getState().trashItems.map((i) => i.id)).toEqual(["t-a"]);
+
+  useAppStore.getState().applyUndoTrash(["a"]);
+  expect(useAppStore.getState().trashItems).toEqual([]);
+
+  useAppStore.getState().applyRedoTrash([mkTrash("t-a2", "a")]);
+  expect(useAppStore.getState().trashItems.map((i) => i.id)).toEqual(["t-a2"]);
+});
+
+test("newly trashed files go to the front of the list, where the panel shows them", () => {
+  useAppStore.setState({
+    files: [mk("a")],
+    visibleIds: ["a"],
+    trashItems: [mkTrash("older", "z")],
+    undoStack: [],
+    redoStack: [],
+  });
+  useAppStore.getState().completeTrash(["a"], [mkTrash("t-a", "a")]);
+  expect(useAppStore.getState().trashItems.map((i) => i.id)).toEqual(["t-a", "older"]);
 });
 
 test("trash undo restores at original indices; redo re-trashes with fresh entries", () => {
@@ -459,4 +594,436 @@ test("setRoots records; startScan clears folders/history but keeps roots; reset 
   expect(useAppStore.getState().undoStack).toEqual([]);
   useAppStore.getState().reset();
   expect(useAppStore.getState().roots).toEqual([]);
+});
+
+// ---------------------------------------------------------------- permanent delete (§6)
+
+test("requestPermanentDelete captures ids/paths/names and ignores an empty selection", () => {
+  useAppStore.getState().addFiles([mk("a"), mk("b")]);
+  useAppStore.getState().requestPermanentDelete([]);
+  expect(useAppStore.getState().pendingDelete).toBeNull();
+  useAppStore.getState().requestPermanentDelete(useAppStore.getState().files);
+  expect(useAppStore.getState().pendingDelete).toEqual({
+    kind: "files",
+    ids: ["a", "b"],
+    paths: ["a", "b"],
+    names: ["a", "b"],
+  });
+});
+
+test("completePermanentDelete drops only the paths the backend actually deleted", () => {
+  useAppStore.getState().addFiles([mk("a"), mk("b"), mk("c")]);
+  useAppStore.getState().finishScan(3);
+  useAppStore.getState().requestPermanentDelete(useAppStore.getState().files);
+  // "b" stayed on disk (locked), so the backend reports only a and c.
+  useAppStore.getState().completePermanentDelete(["a", "c"]);
+  const s = useAppStore.getState();
+  expect(s.files.map((f) => f.id)).toEqual(["b"]);
+  expect(s.scanned).toBe(1);
+  expect(s.pendingDelete).toBeNull();
+  expect(s.selectedIds).toEqual(["b"]);
+  expect(s.focusedId).toBe("b");
+});
+
+test("cancelPermanentDelete leaves every file where it was", () => {
+  useAppStore.getState().addFiles([mk("a")]);
+  useAppStore.getState().requestPermanentDelete(useAppStore.getState().files);
+  useAppStore.getState().cancelPermanentDelete();
+  expect(useAppStore.getState().pendingDelete).toBeNull();
+  expect(useAppStore.getState().files).toHaveLength(1);
+});
+
+test("permanent delete while browsing a folder decrements that folder's count", () => {
+  const folder = mkFolder("f1", 1);
+  useAppStore.setState({
+    folders: [{ ...folder, fileCount: 2 }],
+    browseFolder: { ...folder, fileCount: 2 },
+    browseFiles: [mk("x"), mk("y")],
+  });
+  useAppStore.getState().completePermanentDelete(["x"]);
+  const s = useAppStore.getState();
+  expect(s.browseFiles.map((f) => f.id)).toEqual(["y"]);
+  expect(s.folders[0].fileCount).toBe(1);
+});
+
+// ------------------------------------------------------------- return to library (§1)
+
+test("completeReturn moves browsed files back into the library under their new paths", () => {
+  const folder = mkFolder("f1", 1);
+  useAppStore.setState({
+    files: [mk("C:/root/keep.jpg")],
+    scanned: 1,
+    folders: [{ ...folder, fileCount: 2 }],
+    browseFolder: { ...folder, fileCount: 2 },
+    browseFiles: [mk("C:/base/f1/a.jpg"), mk("C:/base/f1/b.jpg")],
+  });
+  useAppStore.getState().completeReturn(["C:/base/f1/a.jpg"], ["C:/root/a.jpg"]);
+  const s = useAppStore.getState();
+  expect(s.files.map((f) => f.path)).toEqual(["C:/root/keep.jpg", "C:/root/a.jpg"]);
+  // The id is re-minted from the new path the same way the backend would.
+  expect(s.files[1].id).toBe("c:\\root\\a.jpg");
+  expect(s.browseFiles.map((f) => f.id)).toEqual(["C:/base/f1/b.jpg"]);
+  expect(s.folders[0].fileCount).toBe(1);
+  expect(s.scanned).toBe(2);
+});
+
+test("completeReturn is a no-op when none of the ids are being browsed", () => {
+  useAppStore.setState({ files: [mk("a")], browseFiles: [mk("b")] });
+  useAppStore.getState().completeReturn(["nope"], ["C:/root/nope.jpg"]);
+  expect(useAppStore.getState().files.map((f) => f.id)).toEqual(["a"]);
+  expect(useAppStore.getState().browseFiles.map((f) => f.id)).toEqual(["b"]);
+});
+
+// ------------------------------------------------------- rotation + drag state (§2, §3)
+
+test("applyRotation refreshes mtime/size in both the library and the browse list", () => {
+  useAppStore.setState({ files: [mk("a")], browseFiles: [mk("a")] });
+  useAppStore.getState().applyRotation("a", 1700, 4242);
+  expect(useAppStore.getState().files[0]).toMatchObject({ modifiedAt: 1700, size: 4242 });
+  expect(useAppStore.getState().browseFiles[0]).toMatchObject({ modifiedAt: 1700, size: 4242 });
+});
+
+test("setDraggingIds carries the drag payload for the sidebar drop target", () => {
+  useAppStore.getState().setDraggingIds(["a", "b"]);
+  expect(useAppStore.getState().draggingIds).toEqual(["a", "b"]);
+  useAppStore.getState().setDraggingIds([]);
+  expect(useAppStore.getState().draggingIds).toEqual([]);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * Trash selection + restore (§2)
+ * ------------------------------------------------------------------------------------------- */
+
+const trashItem = (id: string) => ({
+  id,
+  originalPath: `C:/x/${id}.jpg`,
+  trashPath: `C:/trash/${id}`,
+  name: `${id}.jpg`,
+  size: 1,
+  deletedAt: 0,
+});
+
+test("trash selection: single, toggle and range walk the listed order", () => {
+  const st = useAppStore.getState();
+  useAppStore.setState({ trashItems: [trashItem("a"), trashItem("b"), trashItem("c")] });
+
+  st.selectTrashOnly("b");
+  expect(useAppStore.getState().trashSelectedIds).toEqual(["b"]);
+
+  st.toggleTrashSelected("c");
+  expect(useAppStore.getState().trashSelectedIds).toEqual(["b", "c"]);
+  st.toggleTrashSelected("c");
+  expect(useAppStore.getState().trashSelectedIds).toEqual(["b"]);
+
+  st.selectTrashOnly("a");
+  st.selectTrashRangeTo("c");
+  expect(useAppStore.getState().trashSelectedIds).toEqual(["a", "b", "c"]);
+});
+
+test("a trash range with a stale anchor degrades to a single item", () => {
+  const st = useAppStore.getState();
+  useAppStore.setState({
+    trashItems: [trashItem("a"), trashItem("b")],
+    trashSelectedIds: [],
+    trashAnchorId: "gone",
+  });
+  st.selectTrashRangeTo("b");
+  expect(useAppStore.getState().trashSelectedIds).toEqual(["b"]);
+});
+
+test("re-listing the trash drops ids that are no longer there", () => {
+  const st = useAppStore.getState();
+  useAppStore.setState({
+    trashItems: [trashItem("a"), trashItem("b")],
+    trashSelectedIds: ["a", "b"],
+    trashAnchorId: "a",
+  });
+  st.setTrashItems([trashItem("b")]); // "a" was restored
+  expect(useAppStore.getState().trashSelectedIds).toEqual(["b"]);
+  expect(useAppStore.getState().trashAnchorId).toBeNull();
+});
+
+test("closing the trash clears its selection and any drag in flight", () => {
+  const st = useAppStore.getState();
+  useAppStore.setState({
+    trashOpen: true,
+    trashSelectedIds: ["a"],
+    trashAnchorId: "a",
+    draggingTrashIds: ["a"],
+  });
+  st.closeTrash();
+  const after = useAppStore.getState();
+  expect(after.trashOpen).toBe(false);
+  expect(after.trashSelectedIds).toEqual([]);
+  expect(after.draggingTrashIds).toEqual([]);
+});
+
+test("addRestoredFiles puts files back in the grid without duplicating them", () => {
+  const st = useAppStore.getState();
+  useAppStore.setState({ files: [mk("a")], scanned: 1, focusedId: null });
+
+  st.addRestoredFiles([mk("b"), mk("c")]);
+  let after = useAppStore.getState();
+  expect(after.files.map((f) => f.id)).toEqual(["a", "b", "c"]);
+  expect(after.scanned).toBe(3);
+  expect(after.focusedId).toBe("b"); // an empty grid gains a focus
+
+  // Restoring something already listed changes nothing.
+  st.addRestoredFiles([mk("b")]);
+  after = useAppStore.getState();
+  expect(after.files.map((f) => f.id)).toEqual(["a", "b", "c"]);
+  expect(after.scanned).toBe(3);
+});
+
+/* ---------------------------------------------------------------------------------------------
+ * Refresh + modal plumbing (§1, §5, §6)
+ * ------------------------------------------------------------------------------------------- */
+
+test("setBrowseFiles swaps a folder's contents and re-homes a stale focus", () => {
+  const st = useAppStore.getState();
+  useAppStore.setState({
+    browseFolder: { id: "fam", name: "fam", path: "C:/base/fam", shortcut: 1, fileCount: 2 },
+    browseFiles: [mk("old1"), mk("old2")],
+    selectedIds: ["old1", "old2"],
+    focusedId: "old1",
+  });
+  st.setBrowseFiles([mk("old2"), mk("new")]);
+  const after = useAppStore.getState();
+  expect(after.browseFolder?.id).toBe("fam"); // still browsing
+  expect(after.browseFiles.map((f) => f.id)).toEqual(["old2", "new"]);
+  expect(after.selectedIds).toEqual(["old2"]); // the vanished file leaves the selection
+  expect(after.focusedId).toBe("old2");
+});
+
+test("setBrowseFiles on an emptied folder leaves nothing focused", () => {
+  const st = useAppStore.getState();
+  useAppStore.setState({ browseFiles: [mk("a")], focusedId: "a", selectedIds: ["a"] });
+  st.setBrowseFiles([]);
+  expect(useAppStore.getState().focusedId).toBeNull();
+  expect(useAppStore.getState().selectedIds).toEqual([]);
+});
+
+test("toggleSettings flips the modal both ways", () => {
+  const st = useAppStore.getState();
+  useAppStore.setState({ settingsOpen: false });
+  st.toggleSettings();
+  expect(useAppStore.getState().settingsOpen).toBe(true);
+  st.toggleSettings();
+  expect(useAppStore.getState().settingsOpen).toBe(false);
+});
+
+test("opening the EXIF viewer dismisses the menu that launched it", () => {
+  const st = useAppStore.getState();
+  useAppStore.setState({ contextMenu: { x: 1, y: 2, fileId: "a" }, exifFileId: null });
+  st.openExif("a");
+  expect(useAppStore.getState().exifFileId).toBe("a");
+  expect(useAppStore.getState().contextMenu).toBeNull();
+  st.closeExif();
+  expect(useAppStore.getState().exifFileId).toBeNull();
+});
+
+test("bumpRefresh only ever counts up", () => {
+  const st = useAppStore.getState();
+  useAppStore.setState({ refreshNonce: 0 });
+  st.bumpRefresh();
+  st.bumpRefresh();
+  expect(useAppStore.getState().refreshNonce).toBe(2);
+});
+
+test("setDateGroupSort records the chosen order", () => {
+  const st = useAppStore.getState();
+  st.setDateGroupSort("volume");
+  expect(useAppStore.getState().dateGroupSort).toBe("volume");
+  st.setDateGroupSort("chronological");
+  expect(useAppStore.getState().dateGroupSort).toBe("chronological");
+});
+
+/* ------------------------------------------------------------------------------------------
+ * Folder-to-folder moves (§2). Files being browsed live in `browseFiles`, not `files`, so the
+ * library reducer matched nothing against them and left the moved photos on screen in a folder
+ * they had already left.
+ * ---------------------------------------------------------------------------------------- */
+
+test("completeMoveOut takes the files out of the browsed folder and shifts both counts", () => {
+  const a = mk("a");
+  const b = mk("b");
+  const c = mk("c");
+  useAppStore.setState({
+    browseFolder: { id: "src", name: "Source", path: "C:/src", shortcut: 1, fileCount: 3 },
+    browseFiles: [a, b, c],
+    folders: [
+      { id: "src", name: "Source", path: "C:/src", shortcut: 1, fileCount: 3 },
+      { id: "dst", name: "Dest", path: "C:/dst", shortcut: 2, fileCount: 7 },
+    ],
+    selectedIds: ["a", "b"],
+    focusedId: "a",
+  });
+
+  useAppStore.getState().completeMoveOut(["a", "b"], "src", "dst");
+
+  const s = useAppStore.getState();
+  expect(s.browseFiles.map((f) => f.id)).toEqual(["c"]);
+  expect(s.folders.find((f) => f.id === "src")!.fileCount).toBe(1);
+  expect(s.folders.find((f) => f.id === "dst")!.fileCount).toBe(9);
+  expect(s.selectedIds).toEqual(["c"]);
+  expect(s.focusedId).toBe("c");
+});
+
+test("completeMoveOut leaves the scanned library untouched", () => {
+  const lib = mk("lib");
+  const a = mk("a");
+  useAppStore.setState({
+    files: [lib],
+    browseFolder: { id: "src", name: "Source", path: "C:/src", shortcut: 1, fileCount: 1 },
+    browseFiles: [a],
+    folders: [
+      { id: "src", name: "Source", path: "C:/src", shortcut: 1, fileCount: 1 },
+      { id: "dst", name: "Dest", path: "C:/dst", shortcut: 2, fileCount: 0 },
+    ],
+  });
+  useAppStore.getState().completeMoveOut(["a"], "src", "dst");
+  expect(useAppStore.getState().files.map((f) => f.id)).toEqual(["lib"]);
+});
+
+test("completeMoveOut with ids that are not in the folder changes nothing", () => {
+  const a = mk("a");
+  useAppStore.setState({
+    browseFiles: [a],
+    folders: [{ id: "src", name: "S", path: "C:/s", shortcut: 1, fileCount: 1 }],
+  });
+  useAppStore.getState().completeMoveOut(["nope"], "src", "dst");
+  expect(useAppStore.getState().browseFiles).toHaveLength(1);
+  expect(useAppStore.getState().folders[0].fileCount).toBe(1);
+});
+
+test("requestEmptyTrash stages every trashed file, and does nothing on an empty trash", () => {
+  useAppStore.setState({ trashItems: [], pendingDelete: null });
+  useAppStore.getState().requestEmptyTrash();
+  expect(useAppStore.getState().pendingDelete).toBeNull();
+
+  useAppStore.setState({
+    trashItems: [
+      { id: "t1", originalPath: "C:/x/a.jpg", trashPath: "C:/t/t1", name: "a.jpg", size: 1, deletedAt: 0 },
+      { id: "t2", originalPath: "C:/x/b.jpg", trashPath: "C:/t/t2", name: "b.jpg", size: 1, deletedAt: 0 },
+    ],
+  });
+  useAppStore.getState().requestEmptyTrash();
+  expect(useAppStore.getState().pendingDelete).toEqual({
+    kind: "trash",
+    ids: ["t1", "t2"],
+    paths: ["C:/t/t1", "C:/t/t2"],
+    names: ["a.jpg", "b.jpg"],
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Real-time group counts (§1). The sidebar renders `group.fileIds.length`; these pin that number
+// to the files actually in the library, on every path that takes a file out of it or puts one
+// back, in every grouping mode.
+
+const anyGrp = (id: string, fileIds: string[], groupType: FileGroup["groupType"]): FileGroup => ({
+  id,
+  name: id,
+  fileIds,
+  similarity: 0,
+  timeSpan: null,
+  groupType,
+});
+
+const counts = () => useAppStore.getState().groups.map((g) => g.fileIds.length);
+
+/** Three files in group 1, one in group 2 — the shape every case below starts from. */
+const seedGroups = (groupType: FileGroup["groupType"]) => {
+  useAppStore.setState({ files: [mk("a"), mk("b"), mk("c"), mk("d")] });
+  useAppStore
+    .getState()
+    .applyGroups(
+      [anyGrp("g1", ["a", "b", "c"], groupType), anyGrp("g2", ["d"], groupType)],
+      groupType,
+    );
+};
+
+test.each(["visual", "temporal", "date", "type"] as const)(
+  "moving files to a target folder decrements the group count live (%s grouping)",
+  (groupType) => {
+    seedGroups(groupType);
+    expect(counts()).toEqual([3, 1]);
+    useAppStore.getState().completeMoveMany(["a", "b"], "f1", ["C:/f1/a", "C:/f1/b"]);
+    expect(counts()).toEqual([1, 1]);
+    expect(useAppStore.getState().groups[0].fileIds).toEqual(["c"]);
+  },
+);
+
+test.each(["visual", "temporal", "date", "type"] as const)(
+  "emptying a group by moving all of its files reads 0, not the original count (%s grouping)",
+  (groupType) => {
+    seedGroups(groupType);
+    useAppStore.getState().completeMoveMany(["a", "b", "c"], "f1", ["x", "y", "z"]);
+    expect(counts()).toEqual([0, 1]);
+    // The group stays listed at zero rather than disappearing out from under the cursor.
+    expect(useAppStore.getState().groups.map((g) => g.id)).toEqual(["g1", "g2"]);
+  },
+);
+
+test("a single-file move decrements the group it came from", () => {
+  seedGroups("visual");
+  useAppStore.getState().completeMove(1, "f1", "C:/f1/b"); // index 1 === "b"
+  expect(counts()).toEqual([2, 1]);
+});
+
+test("trashing files decrements the count, and undoing it puts them back", () => {
+  seedGroups("temporal");
+  useAppStore.getState().completeTrash(["a", "b"], [mkTrash("t1", "a"), mkTrash("t2", "b")]);
+  expect(counts()).toEqual([1, 1]);
+  useAppStore.getState().applyUndoTrash(["a", "b"]);
+  expect(counts()).toEqual([3, 1]);
+});
+
+test("undoing a move restores the count; redoing it drops it again", () => {
+  seedGroups("date");
+  useAppStore.getState().completeMoveMany(["a", "c"], "f1", ["x", "y"]);
+  expect(counts()).toEqual([1, 1]);
+  useAppStore.getState().applyUndoMove(["a", "c"]);
+  expect(counts()).toEqual([3, 1]);
+  useAppStore.getState().applyRedoMove(["x", "y"]);
+  expect(counts()).toEqual([1, 1]);
+});
+
+test("permanently deleting files decrements the count", () => {
+  seedGroups("type");
+  // `mk` uses the id as the path, so these are the paths the backend reports back.
+  useAppStore.getState().completePermanentDelete(["a", "d"]);
+  expect(counts()).toEqual([2, 0]);
+});
+
+test("a group whose files were untouched keeps its identity, so the sidebar row does not re-render", () => {
+  seedGroups("visual");
+  const before = useAppStore.getState().groups;
+  useAppStore.getState().completeMoveMany(["a"], "f1", ["x"]);
+  const after = useAppStore.getState().groups;
+  expect(after).not.toBe(before);
+  expect(after[1]).toBe(before[1]); // g2 lost nothing — same object
+});
+
+test("counting the files out of a group never touches the scan", () => {
+  seedGroups("visual");
+  const { scanned } = useAppStore.getState();
+  useAppStore.getState().completeMoveMany(["a", "b"], "f1", ["x", "y"]);
+  const s = useAppStore.getState();
+  expect(s.scanning).toBe(false); // no backend re-scan was kicked off to refresh a count
+  expect(s.scanned).toBe(scanned);
+});
+
+test("returning a file from a target folder to the library puts it back in its group", () => {
+  seedGroups("visual");
+  const moved = useAppStore.getState().files.find((f) => f.id === "b")!;
+  useAppStore.getState().completeMoveMany(["b"], "f1", ["C:/f1/b"]);
+  expect(counts()).toEqual([2, 1]);
+  // Come back through the folder browser, which re-mints the id from the new root path.
+  useAppStore.setState({
+    browseFolder: { id: "f1", name: "f1", path: "C:/f1", shortcut: 1, fileCount: 1 },
+    browseFiles: [{ ...moved, id: "C:/f1/b", path: "C:/f1/b" }],
+  });
+  useAppStore.getState().completeReturn(["C:/f1/b"], ["C:/root/b"]);
+  expect(counts()).toEqual([3, 1]);
 });

@@ -2,6 +2,7 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
   AppSettings,
+  ExifData,
   FileGroup,
   FileInfo,
   FolderInfo,
@@ -25,6 +26,13 @@ export async function pickFolders(): Promise<string[] | null> {
   return Array.isArray(res) ? res : [res];
 }
 
+/** Open the OS folder picker (single-select). Returns the absolute path, or null if cancelled. */
+export async function pickFolder(): Promise<string | null> {
+  const res = await open({ directory: true, multiple: false });
+  if (res == null) return null;
+  return Array.isArray(res) ? (res[0] ?? null) : res;
+}
+
 export const ensureThumbnail = async (path: string): Promise<string> =>
   convertFileSrc(await invoke<string>("ensure_thumbnail", { path }));
 
@@ -35,9 +43,26 @@ export const clearThumbnailCache = (): Promise<void> =>
 export const createFolder = (base: string, name: string): Promise<FolderInfo> =>
   invoke<FolderInfo>("create_folder", { base, name });
 
-/** List the registered 1–9 target folders. */
+/** Register an existing folder (picked via the explorer) as a target; returns its FolderInfo. */
+export const addExistingFolder = (path: string): Promise<FolderInfo> =>
+  invoke<FolderInfo>("add_existing_folder", { path });
+
+/** Register several picked folders at once; returns the full 1–9 list (extras beyond 9 skipped). */
+export const addExistingFolders = (paths: string[]): Promise<FolderInfo[]> =>
+  invoke<FolderInfo[]>("add_existing_folders", { paths });
+
+/** List the registered 1–9 target folders, each with its **live** on-disk file count. */
 export const listTargetFolders = (): Promise<FolderInfo[]> =>
   invoke<FolderInfo[]>("list_target_folders");
+
+/** Forget every registered target folder (the directories on disk are left alone). Called when a
+ *  new root is scanned, so a fresh session never inherits the last one's 1–9 shortcuts. */
+export const clearTargetFolders = (): Promise<void> => invoke<void>("clear_target_folders");
+
+/** Re-adopt a saved session: grant its roots + target folders (access scope and asset protocol)
+ *  and re-register the folders under their 1–9 shortcuts. Returns the live folder list. */
+export const adoptSession = (roots: string[], folders: string[]): Promise<FolderInfo[]> =>
+  invoke<FolderInfo[]>("adopt_session", { roots, folders });
 
 /** Move files into `dest`; returns their new absolute paths (order-matched). */
 export const moveFiles = (paths: string[], dest: string): Promise<string[]> =>
@@ -63,12 +88,21 @@ export const batchRename = (
 export const renameFiles = (renames: { from: string; to: string }[]): Promise<FileInfo[]> =>
   invoke<FileInfo[]>("rename_files", { renames });
 
-/** Group images by visual similarity (perceptual hash ≥ threshold). Emits `group-progress`. */
+/** The error a cancelled backend grouping run rejects with (Esc). Distinguished from a real
+ *  failure so an abort leaves the existing grouping alone and says nothing. */
+export const GROUPING_CANCELLED = "cancelled";
+
+/** Group images by visual similarity: every image is hashed (dHash or pHash) and clustered around
+ *  seeds, biggest group first. Emits `group-progress`; rejects with `GROUPING_CANCELLED` if the
+ *  user pressed Esc. */
 export const groupVisual = (
   files: FileInfo[],
   threshold: number,
   algo: HashAlgorithm,
 ): Promise<FileGroup[]> => invoke<FileGroup[]>("group_visual", { files, threshold, algo });
+
+/** Request cancellation of an in-progress grouping run (Esc). */
+export const cancelGrouping = (): Promise<void> => invoke<void>("cancel_grouping");
 
 /** Group all files into temporal bursts within `hours` (EXIF dateTaken, else mtime). */
 export const groupTemporal = (files: FileInfo[], hours: number): Promise<FileGroup[]> =>
@@ -101,6 +135,13 @@ export const saveSettings = (settings: AppSettings): Promise<void> =>
 /** Reset settings to defaults on disk; returns the defaults. */
 export const resetSettings = (): Promise<AppSettings> => invoke<AppSettings>("reset_settings");
 
+/** Empty the configured scratch-disk folder's contents now (also runs automatically on app close). */
+export const emptyScratch = (): Promise<void> => invoke<void>("empty_scratch");
+
+/** Read a local image as a `data:` URL (used for the Settings "Special For You" portrait). */
+export const readImageDataUrl = (path: string): Promise<string> =>
+  invoke<string>("read_image_data_url", { path });
+
 /** Save a session snapshot (roots + files + folders + groups). */
 export const saveProject = (project: Project): Promise<void> =>
   invoke<void>("save_project", { project });
@@ -115,3 +156,44 @@ export const listProjects = (): Promise<ProjectSummary[]> =>
 /** Delete a saved project by id. */
 export const deleteProject = (id: string): Promise<void> =>
   invoke<void>("delete_project", { id });
+
+/** The rewritten file's new identity, used to bust every cache keyed on it. */
+export interface RotateResult {
+  modifiedAt: number;
+  size: number;
+}
+
+/** Rotate the original file on disk by ±90° — permanent, not a CSS transform. */
+export const rotateImage = (path: string, degrees: number): Promise<RotateResult> =>
+  invoke<RotateResult>("rotate_image", { path, degrees });
+
+/** Delete files outright: no app trash, no OS recycle bin. Returns the paths actually removed. */
+export const deleteFilesPermanently = (paths: string[]): Promise<string[]> =>
+  invoke<string[]>("delete_files_permanently", { paths });
+
+/** Decode a still the webview can't render itself (HEIC/HEIF/TIFF) into a PNG data URL. */
+export const decodePreview = (path: string): Promise<string> =>
+  invoke<string>("decode_preview", { path });
+
+/** Rebuild FileInfo for explicit paths (restored trash items); unknown/missing paths are skipped. */
+export const fileInfos = (paths: string[]): Promise<FileInfo[]> =>
+  invoke<FileInfo[]>("file_infos", { paths });
+
+/** Read a file's full EXIF metadata for the viewer (§6). */
+export const readExif = (path: string): Promise<ExifData> => invoke<ExifData>("read_exif", { path });
+
+/** List the media files directly inside `path` (non-recursive) — the sidebar's folder browser. */
+export const listFolderFiles = (path: string): Promise<FileInfo[]> =>
+  invoke<FileInfo[]>("list_folder_files", { path });
+
+/** Hand a file to the OS default application (fallback for codecs the webview lacks). */
+export async function openInDefaultApp(path: string): Promise<void> {
+  const { openPath } = await import("@tauri-apps/plugin-opener");
+  await openPath(path);
+}
+
+/** Reveal a file or folder in the OS file manager. */
+export async function revealInExplorer(path: string): Promise<void> {
+  const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+  await revealItemInDir(path);
+}

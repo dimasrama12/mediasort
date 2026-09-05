@@ -14,7 +14,12 @@ vi.mock("../lib/commands", () => ({
     sidebarCollapsed: false,
     cachePath: null,
     hashAlgorithm: "dhash",
+    scratchPath: null,
+    keybindings: {},
   })),
+  emptyScratch: vi.fn(async () => {}),
+  readImageDataUrl: vi.fn(async () => "data:image/jpeg;base64,AAAA"),
+  pickFolder: vi.fn(async () => "D:/scratch"),
 }));
 
 import { SettingsPanel } from "./SettingsPanel";
@@ -56,4 +61,75 @@ test("reset restores defaults via the command", async () => {
   fireEvent.click(screen.getByText("Reset to defaults"));
   await waitFor(() => expect(resetSettings).toHaveBeenCalled());
   await waitFor(() => expect(useAppStore.getState().settings.similarityThreshold).toBe(80));
+});
+
+test("Shortcuts tab lists a rebindable action with its default combo", () => {
+  render(<SettingsPanel />);
+  fireEvent.click(screen.getByRole("button", { name: "Shortcuts" }));
+  expect(screen.getByText("Open / scan folder")).toBeInTheDocument();
+  expect(screen.getByText("Ctrl + O")).toBeInTheDocument();
+});
+
+test("editing a shortcut captures the next key and persists it", async () => {
+  render(<SettingsPanel />);
+  fireEvent.click(screen.getByRole("button", { name: "Shortcuts" }));
+  // Start capturing "Open / scan folder", then press Ctrl+P.
+  fireEvent.click(screen.getByRole("button", { name: "Edit Open / scan folder" }));
+  // The capture listener is on window in the capture phase.
+  fireEvent.keyDown(window, { key: "p", ctrlKey: true });
+  await waitFor(() => expect(saveSettings).toHaveBeenCalled());
+  expect(useAppStore.getState().settings.keybindings.scanFolder).toEqual(["Ctrl+P"]);
+});
+
+test("scratch disk: choosing a folder persists the path", async () => {
+  render(<SettingsPanel />);
+  fireEvent.click(screen.getByText("Choose…"));
+  await waitFor(() => expect(useAppStore.getState().settings.scratchPath).toBe("D:/scratch"));
+});
+
+test("Special tab stays locked until the right password, then shows the message", async () => {
+  render(<SettingsPanel />);
+  fireEvent.click(screen.getByRole("button", { name: "Special" }));
+  expect(screen.queryByText(/Intan Sriwedari/)).toBeNull();
+  fireEvent.change(screen.getByLabelText("Special password"), { target: { value: "25052025" } });
+  await waitFor(() => expect(screen.getByText(/Intan Sriwedari/)).toBeInTheDocument());
+});
+
+test("the User Guide no longer duplicates the shortcut list (§1)", () => {
+  render(<SettingsPanel />);
+  fireEvent.click(screen.getByRole("button", { name: "User Guide" }));
+  expect(screen.queryByText("Keyboard shortcuts")).toBeNull();
+  // The guide still explains itself, and points at the tab that owns the bindings.
+  expect(screen.getByText("Getting started")).toBeInTheDocument();
+  expect(screen.getByText("Shortcuts", { selector: "strong" })).toBeInTheDocument();
+});
+
+test("clicking the app behind the modal closes it (§1)", () => {
+  const { container } = render(<SettingsPanel />);
+  fireEvent.mouseDown(container.firstChild as HTMLElement); // the dimmed backdrop
+  expect(useAppStore.getState().settingsOpen).toBe(false);
+});
+
+test("clicking inside the modal leaves it open", () => {
+  render(<SettingsPanel />);
+  fireEvent.mouseDown(screen.getByLabelText("Theme"));
+  expect(useAppStore.getState().settingsOpen).toBe(true);
+});
+
+test("a click away is ignored while a shortcut capture is armed", () => {
+  const { container } = render(<SettingsPanel />);
+  fireEvent.click(screen.getByRole("button", { name: "Shortcuts" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit Open / scan folder" }));
+  fireEvent.mouseDown(container.firstChild as HTMLElement);
+  expect(useAppStore.getState().settingsOpen).toBe(true);
+});
+
+test("scanning sub-folders is off by default and persists when turned on", async () => {
+  render(<SettingsPanel />);
+  const box = screen.getByRole("checkbox", { name: /scan sub-folders/i });
+  expect(useAppStore.getState().settings.scanSubfolders).toBe(false);
+  expect(box).not.toBeChecked();
+  fireEvent.click(box);
+  expect(useAppStore.getState().settings.scanSubfolders).toBe(true);
+  await waitFor(() => expect(saveSettings).toHaveBeenCalled());
 });

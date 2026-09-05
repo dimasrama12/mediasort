@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "../store/useAppStore";
+import { useFocusTrap } from "../lib/useFocusTrap";
 import { filterFiles } from "../lib/filter";
 import { batchRename } from "../lib/commands";
 
@@ -28,6 +29,8 @@ export function RenamePanel() {
   const [pad, setPad] = useState(2);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(renameOpen, cardRef);
 
   // Targets: the selection if any, else every visible (filtered) file — matches the grid.
   const targets = useMemo(() => {
@@ -69,8 +72,14 @@ export function RenamePanel() {
   };
 
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/50">
-      <div className="w-[420px] rounded-lg bg-[var(--panel)] border border-[var(--border)] p-4 flex flex-col gap-3">
+    <div className="anim-fade absolute inset-0 z-40 flex items-center justify-center bg-[var(--scrim)]">
+      <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Batch rename"
+        className="surface edge-lit flex w-[420px] flex-col gap-3 rounded-xl border border-[var(--border)] p-4"
+      >
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-medium">
             Rename {targets.length} file{targets.length === 1 ? "" : "s"}

@@ -33,7 +33,7 @@ test("double-clicking a card opens its preview", () => {
 
 test("a focused card renders a focus ring", () => {
   render(<FileCard file={file} focused={true} />);
-  expect(screen.getByRole("button").className).toContain("ring-2");
+  expect(screen.getByRole("button").className).toContain("ring-1 ring-[var(--accent)]");
 });
 
 test("plain click selects only this card and focuses it", () => {
@@ -61,9 +61,20 @@ test("shift+click selects the file-order range from the focus anchor", () => {
   expect(useAppStore.getState().selectedIds).toEqual(["a", "b", "c"]);
 });
 
-test("a selected card renders a selected style", () => {
-  render(<FileCard file={file} selected />);
-  expect(screen.getByRole("button").className).toContain("sky");
+test("a selected card is marked by a checkmark, and leaves the photo alone", () => {
+  const { rerender } = render(<FileCard file={file} />);
+  expect(screen.queryByTestId("selected-check")).toBeNull();
+  rerender(<FileCard file={file} selected />);
+  expect(screen.getByTestId("selected-check")).toBeTruthy();
+  // No tint and no glow over the image — the corner mark carries the whole state.
+  const cls = screen.getByRole("button").className;
+  expect(cls).not.toContain("sky");
+  expect(cls).not.toContain("tile-selected");
+});
+
+test("the focus ring is independent of selection (they answer different questions)", () => {
+  render(<FileCard file={file} selected focused={false} />);
+  expect(screen.getByRole("button").className).not.toContain("ring-1 ring-[var(--accent)]");
 });
 
 test("renders a group badge only when the file belongs to a group", () => {

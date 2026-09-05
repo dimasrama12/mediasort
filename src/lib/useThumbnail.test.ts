@@ -28,9 +28,9 @@ test("raster file resolves to a ready thumbnail url", async () => {
   expect(invoke).toHaveBeenCalledTimes(1);
 });
 
-test("video and heic/svg are placeholders and never invoke", () => {
+test("video and svg are placeholders and never invoke", () => {
   const v = renderHook(() => useThumbnail(mk({ id: "v", fileType: "video", extension: "mp4" })));
-  const h = renderHook(() => useThumbnail(mk({ id: "h", extension: "heic" })));
+  const h = renderHook(() => useThumbnail(mk({ id: "h", extension: "svg" })));
   expect(v.result.current.status).toBe("placeholder");
   expect(h.result.current.status).toBe("placeholder");
   expect(invoke).not.toHaveBeenCalled();
@@ -53,8 +53,8 @@ test("invoke rejection sets status error and null url", async () => {
   expect(result.current.url).toBeNull();
 });
 
-test("heif is a placeholder and never invokes", () => {
+test("heif now generates a thumbnail (decoded through WIC in the backend)", () => {
   const { result } = renderHook(() => useThumbnail(mk({ id: "hf", extension: "heif" })));
-  expect(result.current.status).toBe("placeholder");
-  expect(invoke).not.toHaveBeenCalled();
+  expect(result.current.status).toBe("loading");
+  expect(invoke).toHaveBeenCalled();
 });

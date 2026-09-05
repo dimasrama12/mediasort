@@ -1,18 +1,50 @@
 //! Grouping (§6.5): perceptual near-duplicate clustering (visual) + burst/session
 //! clustering (temporal). The clustering core is pure and IO-free so it unit-tests
-//! without the filesystem; only `dhash`/`phash` touch disk. Commands + progress events
-//! are wired in slice #7b, hence `#![allow(dead_code)]` for now.
+//! without the filesystem; only `dhash`/`phash` touch disk.
+//!
+//! ## Why the clustering is greedy and *not* transitive
+//!
+//! An earlier revision replaced the greedy seed pass with union-find over a softer
+//! "contextual" link rule (hash + palette + aspect/letterbox + capture time). The idea was to
+//! chain a film's bright and dark scenes together through the mid-toned frames between them.
+//! In practice transitivity is a one-way door: on a real 1 090-file screenshot folder every
+//! image shared the same aspect ratio and a broadly similar palette, so one chain swallowed
+//! 1 089 files into "Group 1" and left singletons behind. A union-find blob is not a grouping.
+//!
+//! The rule here is deliberately *local*: a file joins a group only if it clears the similarity
+//! threshold against that group's **seed**. Two members of a group are therefore always within
+//! a bounded distance of the same image, which is what makes the groups mean something.
+
 #![allow(dead_code)]
 
 use crate::model::{FileGroup, FileInfo, FileType, GroupType};
 use image::imageops::FilterType;
 use serde::Serialize;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tauri::{AppHandle, Emitter};
 
-/// Default minimum group size (§4 `AppSettings.min_group_size`). Hard-coded until the
-/// settings module (slice 10); the frontend passes threshold/window, the rest defaults here.
-const MIN_GROUP_SIZE: usize = 2;
+/// Minimum group size. **1, deliberately.** With a minimum of 2 every photo that had no
+/// near-duplicate was silently dropped from the result, so on a 1100-file folder you got ~170
+/// groups and a long tail of files with no group and no colour dot. A file that matches nothing
+/// is still a legitimate group of one, so nothing is ever left unassigned.
+const MIN_GROUP_SIZE: usize = 1;
+
+/// The error string a cancelled grouping run returns. The frontend matches on it to tell an
+/// abort apart from a genuine failure (one leaves the existing groups alone and says nothing;
+/// the other is worth surfacing).
+pub const CANCELLED: &str = "cancelled";
+
+/// Cooperative-cancellation flag for the active grouping run. A module-level static rather than
+/// Tauri managed state on purpose: the hashing workers run inside `spawn_blocking`, where a
+/// borrowed `State<'_, _>` cannot follow them, and only one grouping run is ever in flight (the
+/// toolbar disables the group buttons while one is going).
+static CANCEL: AtomicBool = AtomicBool::new(false);
+
+/// True once `cancel_grouping` has been called for the current run.
+fn cancelled() -> bool {
+    CANCEL.load(Ordering::SeqCst)
+}
 
 /// A file reduced to its perceptual hash — the pure input to `cluster_visual`.
 pub struct Hashed {
@@ -27,10 +59,16 @@ pub struct Timed {
 }
 
 /// 64-bit difference hash (dHash): grayscale → 9×8 → compare horizontally adjacent
-/// pixels (left > right ⇒ 1). Returns `None` if the image can't be decoded (videos,
-/// HEIC/SVG without their decoders, corrupt files) — those are simply skipped, per v1.
+/// pixels (left > right ⇒ 1). Returns `None` only when nothing on the machine can decode the
+/// file (videos, SVG, corrupt files); `decode_any` means HEIC/HEIF hash like any other photo,
+/// which is what stopped them dropping out of "Group: Similar" entirely.
 pub fn dhash(path: &Path) -> Option<u64> {
-    let img = image::open(path).ok()?;
+    Some(dhash_img(&crate::media::decode_any(&path.to_string_lossy()).ok()?))
+}
+
+/// dHash of an already-decoded image. Split out so a worker decodes each photo once and derives
+/// the hash from that single decode.
+pub fn dhash_img(img: &image::DynamicImage) -> u64 {
     let small = img.resize_exact(9, 8, FilterType::Triangle).to_luma8();
     let mut hash: u64 = 0;
     let mut bit = 0u32;
@@ -44,7 +82,7 @@ pub fn dhash(path: &Path) -> Option<u64> {
             bit += 1;
         }
     }
-    Some(hash)
+    hash
 }
 
 /// Number of differing bits between two hashes (0..=64).
@@ -92,7 +130,11 @@ const PHASH_N: usize = 32;
 /// Compared to dHash it survives gamma, blur, and scaling far better, at ~65k extra multiplies
 /// per image. Returns `None` on an undecodable file (same contract as `dhash`).
 pub fn phash(path: &Path) -> Option<u64> {
-    let img = image::open(path).ok()?;
+    Some(phash_img(&crate::media::decode_any(&path.to_string_lossy()).ok()?))
+}
+
+/// pHash of an already-decoded image (see `dhash_img` for why this split exists).
+pub fn phash_img(img: &image::DynamicImage) -> u64 {
     let small = img
         .resize_exact(PHASH_N as u32, PHASH_N as u32, FilterType::Triangle)
         .to_luma8();
@@ -120,7 +162,7 @@ pub fn phash(path: &Path) -> Option<u64> {
             hash |= 1u64 << i;
         }
     }
-    Some(hash)
+    hash
 }
 
 /// Separable 2-D DCT-II of an N×N matrix: transform every row, then every column, reusing one
@@ -171,6 +213,9 @@ fn dct2d(f: &[[f64; PHASH_N]; PHASH_N]) -> [[f64; PHASH_N]; PHASH_N] {
 /// Greedy visual clustering (§6.5): scan order; each ungrouped file seeds a group and
 /// absorbs every later ungrouped file with `similarity >= threshold`. Groups smaller
 /// than `min_size` are dropped. `similarity` = the group's average seed-to-member score.
+///
+/// Membership is measured against the **seed only**, never member-to-member, so a group can
+/// never grow by chaining (see the module header for what happened when it could).
 pub fn cluster_visual(items: &[Hashed], threshold: u32, min_size: usize) -> Vec<FileGroup> {
     let min = min_size.max(1);
     let mut used = vec![false; items.len()];
@@ -216,6 +261,23 @@ pub fn cluster_visual(items: &[Hashed], threshold: u32, min_size: usize) -> Vec<
         }
     }
     groups
+}
+
+/// Order groups by file count, biggest first, then renumber their ids and names so "Group 1" is
+/// always the biggest group (§4). A trailing qualifier on a name ("Group 7 · no visual match") is
+/// carried across the renumbering. The sort is stable, so equal-sized groups keep the order the
+/// clustering produced.
+pub fn sort_groups_by_volume(groups: &mut [FileGroup], prefix: &str) {
+    groups.sort_by(|a, b| b.file_ids.len().cmp(&a.file_ids.len()));
+    for (i, g) in groups.iter_mut().enumerate() {
+        let n = i + 1;
+        let suffix = match g.name.split_once(" · ") {
+            Some((_, tail)) => format!(" · {tail}"),
+            None => String::new(),
+        };
+        g.id = format!("{prefix}-{n}");
+        g.name = format!("Group {n}{suffix}");
+    }
 }
 
 /// Temporal clustering (§6.5): sort by timestamp asc, split into a new group whenever the
@@ -286,10 +348,63 @@ struct GroupProgress {
     total: usize,
 }
 
-/// Group images by visual similarity. Hashes every image by the chosen `algo` (dHash default,
-/// pHash option — emitting `group-progress` per file, like `scan_folders`), then greedily
-/// clusters at `threshold`. Non-images and undecodable files are skipped. Runs inline in the
-/// async command (same pattern as the scan walk); returns `FileGroup[]` without mutating `FileInfo`.
+/// Decode every image once, in parallel across the CPU, and reduce it to its perceptual hash.
+/// Decoding 1000+ full-size photos one at a time is what made grouping feel like it had hung;
+/// this keeps the same per-file `group-progress` reporting (throttled) so the UI shows real
+/// movement, and polls `cancel` on every file so Esc aborts within one decode.
+fn hash_all(
+    app: &AppHandle,
+    images: &[&FileInfo],
+    algo: HashAlgo,
+    total: usize,
+) -> Vec<Option<u64>> {
+    let mut out: Vec<Option<u64>> = (0..images.len()).map(|_| None).collect();
+    if images.is_empty() {
+        return out;
+    }
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .clamp(1, 8);
+    let chunk = images.len().div_ceil(workers);
+    let done = AtomicUsize::new(0);
+
+    std::thread::scope(|scope| {
+        for (ci, slice) in out.chunks_mut(chunk).enumerate() {
+            let base = ci * chunk;
+            let app = app.clone();
+            let done = &done;
+            scope.spawn(move || {
+                for (k, slot) in slice.iter_mut().enumerate() {
+                    if cancelled() {
+                        return; // Esc: stop this worker where it stands
+                    }
+                    let f = images[base + k];
+                    *slot = hash_image(Path::new(&f.path), algo);
+                    // Throttled: one event per 16 files keeps the IPC channel quiet while
+                    // still moving the progress readout several times a second.
+                    let d = done.fetch_add(1, Ordering::Relaxed) + 1;
+                    if d % 16 == 0 || d == images.len() {
+                        app.emit("group-progress", GroupProgress { done: d, total }).ok();
+                    }
+                }
+            });
+        }
+    });
+    out
+}
+
+/// Group images by visual similarity. Every image is decoded once and reduced to a perceptual
+/// hash (dHash or pHash, per the user's setting), then clustered greedily around seeds.
+///
+/// **Every scanned file ends up in a group.** Images that match nothing become groups of one
+/// (see `MIN_GROUP_SIZE`), and files no decoder can hash — videos, SVG, corrupt images — are
+/// collected into one trailing group rather than being dropped.
+///
+/// Groups come back ordered by volume: group 1 has the most files, group 2 the next, and so on.
+///
+/// Pressing Esc calls `cancel_grouping`, which makes this return `Err(CANCELLED)` — the frontend
+/// then leaves whatever grouping was already applied alone.
 #[tauri::command]
 pub async fn group_visual(
     app: AppHandle,
@@ -298,20 +413,54 @@ pub async fn group_visual(
     algo: Option<String>,
 ) -> Result<Vec<FileGroup>, String> {
     let algo = HashAlgo::from_tag(algo.as_deref().unwrap_or("dhash"));
-    let images: Vec<&FileInfo> = files
-        .iter()
-        .filter(|f| f.file_type == FileType::Image)
-        .collect();
-    let total = images.len();
-    let mut hashed: Vec<Hashed> = Vec::with_capacity(total);
-    for (i, f) in images.iter().enumerate() {
-        if let Some(hash) = hash_image(Path::new(&f.path), algo) {
-            hashed.push(Hashed { id: f.id.clone(), hash });
+    CANCEL.store(false, Ordering::SeqCst);
+
+    // Hashing is CPU-bound and can run for a minute on a big folder — off the async runtime.
+    tauri::async_runtime::spawn_blocking(move || {
+        let total = files.len();
+        let images: Vec<&FileInfo> = files
+            .iter()
+            .filter(|f| f.file_type == FileType::Image)
+            .collect();
+
+        let hashes = hash_all(&app, &images, algo, total);
+        if cancelled() {
+            return Err(CANCELLED.to_string());
         }
-        app.emit("group-progress", GroupProgress { done: i + 1, total })
-            .ok();
-    }
-    Ok(cluster_visual(&hashed, threshold, MIN_GROUP_SIZE))
+        let mut hashed: Vec<Hashed> = Vec::with_capacity(images.len());
+        let mut unhashable: Vec<String> = Vec::new();
+        for (f, h) in images.iter().zip(hashes) {
+            match h {
+                Some(hash) => hashed.push(Hashed { id: f.id.clone(), hash }),
+                None => unhashable.push(f.id.clone()),
+            }
+        }
+        // Videos never had a hash to begin with; they belong with the rest of the leftovers.
+        unhashable.extend(
+            files
+                .iter()
+                .filter(|f| f.file_type != FileType::Image)
+                .map(|f| f.id.clone()),
+        );
+
+        let mut groups = cluster_visual(&hashed, threshold, MIN_GROUP_SIZE);
+        if !unhashable.is_empty() {
+            let n = groups.len() + 1;
+            groups.push(FileGroup {
+                id: format!("visual-{n}"),
+                name: format!("Group {n} · no visual match"),
+                file_ids: unhashable,
+                similarity: 0.0,
+                time_span: None,
+                group_type: GroupType::Visual,
+            });
+        }
+        sort_groups_by_volume(&mut groups, "visual");
+        app.emit("group-progress", GroupProgress { done: total, total }).ok();
+        Ok(groups)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Group all files (images + videos) into temporal bursts within `hours`. Uses EXIF
@@ -325,7 +474,18 @@ pub async fn group_temporal(files: Vec<FileInfo>, hours: f64) -> Result<Vec<File
             timestamp: f.date_taken.unwrap_or(f.modified_at),
         })
         .collect();
-    Ok(cluster_temporal(&timed, hours, MIN_GROUP_SIZE))
+    let mut groups = cluster_temporal(&timed, hours, MIN_GROUP_SIZE);
+    // Biggest burst first (§4) — the run that actually needs attention leads the list, rather
+    // than whatever happened to be earliest on the clock.
+    sort_groups_by_volume(&mut groups, "temporal");
+    Ok(groups)
+}
+
+/// Request cancellation of the in-progress grouping run (Esc, §4). Checked once per file, so a
+/// 1000-photo hash stops within a single decode rather than running to completion unseen.
+#[tauri::command]
+pub fn cancel_grouping() {
+    CANCEL.store(true, Ordering::SeqCst);
 }
 
 #[cfg(test)]
@@ -452,6 +612,82 @@ mod tests {
         assert_eq!(groups.len(), 2);
     }
 
+    /// The regression this file's header is about: a chain of images where each is close to its
+    /// neighbour but the ends are opposites must **not** collapse into one group. Union-find did
+    /// exactly that and produced a single 1 089-file blob on a real folder.
+    #[test]
+    fn cluster_visual_never_chains_a_gradient_into_one_blob() {
+        // 64 hashes, each one bit further from the last: neighbours are ~98% similar, the two
+        // ends are 0% similar. A transitive rule merges all 64; a seed-based rule must not.
+        let items: Vec<Hashed> = (0..64u32)
+            .map(|i| Hashed {
+                id: format!("f{i}"),
+                hash: if i == 0 { 0 } else { u64::MAX >> (64 - i) },
+            })
+            .collect();
+        let groups = cluster_visual(&items, 80, MIN_GROUP_SIZE);
+        assert!(
+            groups.len() > 1,
+            "a similarity chain must not collapse into one group (got {} group(s))",
+            groups.len()
+        );
+        // No group may hold more than the seed plus everything genuinely within the threshold.
+        let biggest = groups.iter().map(|g| g.file_ids.len()).max().unwrap();
+        assert!(biggest <= 14, "a group swallowed {biggest} of 64 files");
+        // ...and nothing is lost on the way.
+        let assigned: usize = groups.iter().map(|g| g.file_ids.len()).sum();
+        assert_eq!(assigned, items.len());
+    }
+
+    /// Every member of a group is within the threshold of its seed — the property that makes a
+    /// group mean something, and the one union-find gave up.
+    #[test]
+    fn cluster_visual_members_are_all_within_threshold_of_their_seed() {
+        let items: Vec<Hashed> = (0..200u64)
+            .map(|i| Hashed { id: format!("f{i}"), hash: i.wrapping_mul(0x9E37_79B9_7F4A_7C15) })
+            .collect();
+        let by_id: std::collections::HashMap<&str, u64> =
+            items.iter().map(|h| (h.id.as_str(), h.hash)).collect();
+        for g in cluster_visual(&items, 80, MIN_GROUP_SIZE) {
+            let seed = by_id[g.file_ids[0].as_str()];
+            for member in &g.file_ids[1..] {
+                assert!(similarity(seed, by_id[member.as_str()]) >= 80);
+            }
+        }
+    }
+
+    #[test]
+    fn the_shipped_minimum_leaves_no_file_ungrouped() {
+        // The regression this guards: at MIN_GROUP_SIZE 2 a big folder of mostly-unique photos
+        // produced a handful of groups and dropped everything else on the floor.
+        let items: Vec<Hashed> = (0..200u64)
+            .map(|i| Hashed { id: format!("f{i}"), hash: i.wrapping_mul(0x9E37_79B9_7F4A_7C15) })
+            .collect();
+        let groups = cluster_visual(&items, 90, MIN_GROUP_SIZE);
+        let assigned: usize = groups.iter().map(|g| g.file_ids.len()).sum();
+        assert_eq!(assigned, items.len(), "every file must land in a group");
+        // ...and each file appears exactly once.
+        let mut seen: Vec<&String> = groups.iter().flat_map(|g| g.file_ids.iter()).collect();
+        seen.sort();
+        seen.dedup();
+        assert_eq!(seen.len(), items.len());
+        // Group ids stay contiguous and 1-based so the colour cycling lines up with the sidebar.
+        assert_eq!(groups[0].id, "visual-1");
+        assert_eq!(groups.last().unwrap().id, format!("visual-{}", groups.len()));
+    }
+
+    #[test]
+    fn the_shipped_minimum_also_keeps_lone_timestamps() {
+        let items = vec![
+            Timed { id: "a".into(), timestamp: 0 },
+            Timed { id: "b".into(), timestamp: 1800 },
+            Timed { id: "far".into(), timestamp: 100_000 },
+        ];
+        let groups = cluster_temporal(&items, 1.0, MIN_GROUP_SIZE);
+        let assigned: usize = groups.iter().map(|g| g.file_ids.len()).sum();
+        assert_eq!(assigned, 3);
+    }
+
     #[test]
     fn group_temporal_clusters_within_window_and_splits_on_gap() {
         // 0,1800,3600 within a 1h window of each other; 100000 far off → dropped (min 2).
@@ -485,6 +721,52 @@ mod tests {
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].file_ids, vec!["a", "b", "c"]);
         assert_eq!(groups[1].file_ids, vec!["d", "e", "f"]);
+    }
+
+    #[test]
+    fn sort_groups_by_volume_orders_biggest_first_and_renumbers() {
+        let mk = |id: &str, name: &str, n: usize| FileGroup {
+            id: id.into(),
+            name: name.into(),
+            file_ids: (0..n).map(|i| format!("{id}-{i}")).collect(),
+            similarity: 0.0,
+            time_span: None,
+            group_type: GroupType::Visual,
+        };
+        let mut groups = vec![
+            mk("visual-1", "Group 1", 2),
+            mk("visual-2", "Group 2", 9),
+            mk("visual-3", "Group 3 · no visual match", 5),
+        ];
+        sort_groups_by_volume(&mut groups, "visual");
+
+        assert_eq!(
+            groups.iter().map(|g| g.file_ids.len()).collect::<Vec<_>>(),
+            vec![9, 5, 2],
+            "group 1 must hold the most files"
+        );
+        assert_eq!(groups[0].id, "visual-1");
+        assert_eq!(groups[0].name, "Group 1");
+        // The renumbering carries a group's qualifier along with it.
+        assert_eq!(groups[1].id, "visual-2");
+        assert_eq!(groups[1].name, "Group 2 · no visual match");
+        assert_eq!(groups[2].id, "visual-3");
+    }
+
+    #[test]
+    fn sort_groups_by_volume_is_stable_for_equal_sizes() {
+        let mk = |id: &str, first: &str| FileGroup {
+            id: id.into(),
+            name: "Group x".into(),
+            file_ids: vec![first.into(), "z".into()],
+            similarity: 0.0,
+            time_span: None,
+            group_type: GroupType::Temporal,
+        };
+        let mut groups = vec![mk("temporal-1", "a"), mk("temporal-2", "b")];
+        sort_groups_by_volume(&mut groups, "temporal");
+        assert_eq!(groups[0].file_ids[0], "a");
+        assert_eq!(groups[1].file_ids[0], "b");
     }
 
     #[test]

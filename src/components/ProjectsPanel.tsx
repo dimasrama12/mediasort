@@ -1,14 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "../store/useAppStore";
-import { saveProject, loadProject, listProjects, deleteProject } from "../lib/commands";
+import { useFocusTrap } from "../lib/useFocusTrap";
+import { saveProject, listProjects, deleteProject } from "../lib/commands";
+import { openProject } from "../lib/appActions";
 import type { Project, ProjectSummary } from "../lib/types";
 
 export function ProjectsPanel() {
   const projectsOpen = useAppStore((s) => s.projectsOpen);
   const closeProjects = useAppStore((s) => s.closeProjects);
-  const loadProjectData = useAppStore((s) => s.loadProjectData);
   const [list, setList] = useState<ProjectSummary[]>([]);
   const [name, setName] = useState("");
+  const cardRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(projectsOpen, cardRef);
 
   const refresh = () => void listProjects().then(setList).catch(() => {});
 
@@ -51,14 +54,21 @@ export function ProjectsPanel() {
       .catch(() => {});
   };
 
-  const onLoad = (id: string) =>
-    void loadProject(id).then(loadProjectData).catch(() => {});
+  // `openProject` restores the store *and* re-adopts the session in the backend (registry +
+  // access scope + asset protocol) — see lib/appActions.ts.
+  const onLoad = (id: string) => void openProject(id).catch(() => {});
   const onDelete = (id: string) =>
     void deleteProject(id).then(refresh).catch(() => {});
 
   return (
-    <div className="absolute inset-0 z-40 flex justify-end bg-black/50">
-      <div className="w-[380px] h-full bg-[var(--panel)] border-l border-[var(--border)] flex flex-col">
+    <div className="anim-fade absolute inset-0 z-40 flex justify-end bg-[var(--scrim)]">
+      <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Saved projects"
+        className="surface edge-lit flex h-full w-[380px] flex-col border-l border-[var(--border)]"
+      >
         <header className="flex items-center justify-between px-3 py-2 border-b border-[var(--border)]">
           <h2 className="text-sm font-medium">Projects</h2>
           <button

@@ -6,11 +6,35 @@ use crate::scan::build_file_info;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// Return `target` if free, else the first `stem_N.ext` variant that doesn't exist.
-fn resolve_collision(target: &Path) -> PathBuf {
-    if !target.exists() {
-        return target.to_path_buf();
+/// How many `_N` variants to try before giving up. An unbounded `loop { n += 1 }` hangs the app
+/// on a directory that somehow holds every candidate name, with no way for the user out of it.
+const MAX_COLLISION_TRIES: u32 = 10_000;
+
+/// Write `bytes` to `target` **atomically**: temp sibling, then rename over the target.
+///
+/// `std::fs::write` truncates first, so a crash or power loss mid-write leaves a truncated file.
+/// For the two files that hold app state (`trash.json`, `settings.json`) that is data loss: both
+/// fall back to a default on a parse error, so a half-written index silently orphans everything
+/// it described. Only the rename can be interrupted, and that step is atomic.
+pub fn write_atomic(target: &Path, bytes: &[u8]) -> Result<(), String> {
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
+    let tmp = target.with_extension(format!("{}.tmp", std::process::id()));
+    std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, target).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        e.to_string()
+    })
+}
+
+/// Claim a free destination name inside `target`'s directory, **creating the file to reserve it**.
+///
+/// `exists()`-then-write is a race: two moves landing in one folder at the same moment both see a
+/// free name and the second silently overwrites the first. `create_new(true)` is the atomic
+/// "create only if absent" the OS already offers, so exactly one caller can win a given name. The
+/// returned path is an empty placeholder that the caller's rename/copy overwrites.
+fn reserve_target(target: &Path) -> Result<PathBuf, String> {
     let parent = target.parent().unwrap_or_else(|| Path::new("."));
     let stem = target
         .file_stem()
@@ -18,17 +42,29 @@ fn resolve_collision(target: &Path) -> PathBuf {
         .to_string_lossy()
         .to_string();
     let ext = target.extension().map(|e| e.to_string_lossy().to_string());
-    let mut n = 1;
-    loop {
-        let candidate = parent.join(match &ext {
-            Some(e) => format!("{stem}_{n}.{e}"),
-            None => format!("{stem}_{n}"),
-        });
-        if !candidate.exists() {
-            return candidate;
+
+    for n in 0..=MAX_COLLISION_TRIES {
+        let candidate = if n == 0 {
+            target.to_path_buf()
+        } else {
+            parent.join(match &ext {
+                Some(e) => format!("{stem}_{n}.{e}"),
+                None => format!("{stem}_{n}"),
+            })
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(_) => return Ok(candidate),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("{}: {e}", candidate.display())),
         }
-        n += 1;
     }
+    Err(format!(
+        "could not find a free name for {stem} after {MAX_COLLISION_TRIES} tries"
+    ))
 }
 
 /// Move one file into `dest_dir`, returning its new absolute path.
@@ -40,21 +76,70 @@ pub fn move_one(src: &str, dest_dir: &str) -> Result<PathBuf, String> {
     let dest_dir_path = Path::new(dest_dir);
     std::fs::create_dir_all(dest_dir_path).map_err(|e| e.to_string())?;
 
-    let target = resolve_collision(&dest_dir_path.join(file_name));
+    // The reservation is an empty placeholder; both branches below overwrite it (Windows'
+    // rename replaces an existing file, and `copy` truncates). If the move fails outright the
+    // placeholder is removed so a failed move never leaves a 0-byte ghost in the target folder.
+    let target = reserve_target(&dest_dir_path.join(file_name))?;
 
-    match std::fs::rename(src_path, &target) {
+    if std::fs::rename(src_path, &target).is_ok() {
+        return Ok(target);
+    }
+    // Cross-volume: rename fails with EXDEV (cross-device) — copy then delete.
+    let moved = std::fs::copy(src_path, &target)
+        .map_err(|e| e.to_string())
+        .and_then(|_| std::fs::remove_file(src_path).map_err(|e| e.to_string()));
+    match moved {
         Ok(()) => Ok(target),
-        Err(_) => {
-            // Cross-volume: rename fails with EXDEV — copy then delete.
-            std::fs::copy(src_path, &target).map_err(|e| e.to_string())?;
-            std::fs::remove_file(src_path).map_err(|e| e.to_string())?;
-            Ok(target)
+        Err(e) => {
+            let _ = std::fs::remove_file(&target);
+            Err(e)
         }
     }
 }
 
+/// Delete files outright — no app trash, no OS recycle bin (§6 `Shift+Delete`). Returns the
+/// paths that are actually gone, so the UI removes exactly those rows and a locked or
+/// already-missing file doesn't silently disappear from the grid while still being on disk.
+/// Directories are refused: this command exists to delete media, and recursive deletion is not
+/// something a keyboard shortcut should ever be able to trigger.
+pub fn delete_permanently_in(paths: &[String]) -> Vec<String> {
+    let mut gone = Vec::with_capacity(paths.len());
+    for p in paths {
+        let path = Path::new(p);
+        match std::fs::metadata(path) {
+            Ok(m) if m.is_file() => {
+                if std::fs::remove_file(path).is_ok() {
+                    gone.push(p.clone());
+                }
+            }
+            // Already missing counts as deleted — the grid should drop the row either way.
+            Err(_) => gone.push(p.clone()),
+            _ => {}
+        }
+    }
+    gone
+}
+
 #[tauri::command]
-pub async fn move_files(paths: Vec<String>, dest: String) -> Result<Vec<String>, String> {
+pub async fn delete_files_permanently(
+    scope: tauri::State<'_, crate::guard::AccessScope>,
+    paths: Vec<String>,
+) -> Result<Vec<String>, String> {
+    scope.check_all(&paths)?;
+    tauri::async_runtime::spawn_blocking(move || delete_permanently_in(&paths))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn move_files(
+    scope: tauri::State<'_, crate::guard::AccessScope>,
+    paths: Vec<String>,
+    dest: String,
+) -> Result<Vec<String>, String> {
+    // Both ends: a move is a delete from one place and a create in another.
+    scope.check_all(&paths)?;
+    scope.check(&dest)?;
     let mut out = Vec::with_capacity(paths.len());
     for p in &paths {
         out.push(move_one(p, &dest)?.to_string_lossy().to_string());
@@ -136,7 +221,7 @@ pub fn apply_renames(plans: &[RenamePlan]) -> Result<Vec<String>, String> {
     // Phase 2: temps -> final targets.
     let mut out = Vec::with_capacity(plans.len());
     for (temp, plan) in temps.iter().zip(plans.iter()) {
-        let target = resolve_collision(Path::new(&plan.to));
+        let target = reserve_target(Path::new(&plan.to))?;
         std::fs::rename(temp, &target).map_err(|e| format!("rename -> {}: {e}", plan.to))?;
         out.push(target.to_string_lossy().to_string());
     }
@@ -147,11 +232,13 @@ pub fn apply_renames(plans: &[RenamePlan]) -> Result<Vec<String>, String> {
 /// (backend stays the source of truth for the normalized id). Group membership is dropped.
 #[tauri::command]
 pub async fn batch_rename(
+    scope: tauri::State<'_, crate::guard::AccessScope>,
     paths: Vec<String>,
     pattern: String,
     start: u32,
     pad: u32,
 ) -> Result<Vec<FileInfo>, String> {
+    scope.check_all(&paths)?;
     let new_paths = apply_batch_rename(&paths, &pattern, start, pad as usize)?;
     let mut out = Vec::with_capacity(new_paths.len());
     for p in &new_paths {
@@ -166,7 +253,13 @@ pub async fn batch_rename(
 /// primitive for batch rename: undo renames each file back to its exact original name (the `{n}`
 /// pattern API can't express arbitrary per-file names), redo re-applies the new names.
 #[tauri::command]
-pub async fn rename_files(renames: Vec<RenamePlan>) -> Result<Vec<FileInfo>, String> {
+pub async fn rename_files(
+    scope: tauri::State<'_, crate::guard::AccessScope>,
+    renames: Vec<RenamePlan>,
+) -> Result<Vec<FileInfo>, String> {
+    // Both ends again: `from` is what gets unlinked, `to` is what gets created.
+    scope.check_all(renames.iter().map(|r| &r.from))?;
+    scope.check_all(renames.iter().map(|r| &r.to))?;
     let new_paths = apply_renames(&renames)?;
     let mut out = Vec::with_capacity(new_paths.len());
     for p in &new_paths {
@@ -175,6 +268,43 @@ pub async fn rename_files(renames: Vec<RenamePlan>) -> Result<Vec<FileInfo>, Str
         );
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod delete_tests {
+    use super::*;
+
+    #[test]
+    fn removes_files_and_reports_exactly_what_went() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.jpg");
+        let b = dir.path().join("b.jpg");
+        std::fs::write(&a, b"x").unwrap();
+        std::fs::write(&b, b"y").unwrap();
+        let missing = dir.path().join("gone.jpg").to_string_lossy().to_string();
+
+        let gone = delete_permanently_in(&[
+            a.to_string_lossy().to_string(),
+            missing.clone(),
+            b.to_string_lossy().to_string(),
+        ]);
+
+        assert_eq!(gone.len(), 3); // a, the already-missing one, and b
+        assert!(!a.exists() && !b.exists());
+    }
+
+    #[test]
+    fn refuses_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("keep");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("inside.jpg"), b"x").unwrap();
+
+        let gone = delete_permanently_in(&[sub.to_string_lossy().to_string()]);
+
+        assert!(gone.is_empty(), "a directory is never deleted");
+        assert!(sub.join("inside.jpg").exists());
+    }
 }
 
 #[cfg(test)]

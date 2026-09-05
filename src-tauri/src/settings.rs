@@ -15,12 +15,12 @@ pub fn load_from(path: &Path) -> AppSettings {
 }
 
 /// Write settings as pretty JSON, creating the parent directory if needed.
+///
+/// Atomic (temp sibling + rename): `load_from` falls back to defaults on a parse error, so a
+/// truncated `settings.json` would silently reset every preference the user ever set.
 pub fn save_to(path: &Path, settings: &AppSettings) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
     let json = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    std::fs::write(path, json).map_err(|e| e.to_string())
+    crate::fileops::write_atomic(path, json.as_bytes())
 }
 
 /// Managed state holding the resolved `settings.json` path.
@@ -56,6 +56,36 @@ pub fn reset_settings(state: State<'_, SettingsState>) -> Result<AppSettings, St
 mod tests {
     use super::*;
     use crate::model::Theme;
+
+    #[test]
+    fn a_settings_file_written_before_scan_subfolders_existed_loads_on_the_safe_default() {
+        // Back-compat: an older settings.json has no `scanSubfolders` key at all. It must load
+        // (not reset every other preference) and land on the non-recursive behaviour, which is
+        // the one that cannot pull already-filed photos back into the library.
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("settings.json");
+        std::fs::write(
+            &p,
+            r#"{"similarityThreshold":72,"timeWindowHours":2.0,"minGroupSize":3,"theme":"dark",
+                "defaultView":"list","thumbnailSize":180,"sidebarWidth":200,
+                "sidebarCollapsed":true,"cachePath":null}"#,
+        )
+        .unwrap();
+        let loaded = load_from(&p);
+        assert!(!loaded.scan_subfolders);
+        assert_eq!(loaded.similarity_threshold, 72, "the other settings survive");
+        assert_eq!(loaded.default_view, "list");
+    }
+
+    #[test]
+    fn scan_subfolders_roundtrips() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("settings.json");
+        let mut s = AppSettings::default();
+        s.scan_subfolders = true;
+        save_to(&p, &s).unwrap();
+        assert!(load_from(&p).scan_subfolders);
+    }
 
     #[test]
     fn missing_file_yields_defaults() {

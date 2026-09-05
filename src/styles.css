@@ -7,9 +7,21 @@
   --panel: #171717;
   --elevated: #262626;
   --elevated-hover: #404040;
-  --border: #262626;
+  /* Distinct from --elevated: when the two matched, every panel edge and divider was invisible. */
+  --border: #303030;
   --text: #e5e5e5;
-  --muted: #737373;
+  --muted: #8a8a8a;
+  --accent: #2563eb;
+  --accent-hover: #3b82f6;
+  /* Derived accents, so a glow or a wash never hard-codes a second blue that drifts from the
+     first one the next time the accent changes. */
+  --accent-soft: color-mix(in srgb, var(--accent) 22%, transparent);
+  --accent-faint: color-mix(in srgb, var(--accent) 12%, transparent);
+  --accent-glow: color-mix(in srgb, var(--accent) 45%, transparent);
+  --scrim: rgb(0 0 0 / 0.62);
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.35);
+  --shadow-2: 0 6px 20px -6px rgb(0 0 0 / 0.55), 0 2px 6px rgb(0 0 0 / 0.35);
+  --shadow-3: 0 24px 60px -18px rgb(0 0 0 / 0.75), 0 6px 18px rgb(0 0 0 / 0.4);
   color-scheme: dark;
 }
 
@@ -18,9 +30,16 @@
   --panel: #f4f4f5;
   --elevated: #e4e4e7;
   --elevated-hover: #d4d4d8;
-  --border: #d4d4d4;
+  /* One step darker than --elevated-hover so a divider still reads against a hovered control. */
+  --border: #c4c4cb;
   --text: #18181b;
   --muted: #6b7280;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --scrim: rgb(15 23 42 / 0.45);
+  --shadow-1: 0 1px 2px rgb(15 23 42 / 0.08);
+  --shadow-2: 0 6px 20px -6px rgb(15 23 42 / 0.18), 0 2px 6px rgb(15 23 42 / 0.08);
+  --shadow-3: 0 24px 60px -18px rgb(15 23 42 / 0.28), 0 6px 18px rgb(15 23 42 / 0.12);
   color-scheme: light;
 }
 
@@ -29,4 +48,171 @@ body,
 #root {
   background-color: var(--bg);
   color: var(--text);
+}
+
+/* One consistent keyboard-focus ring everywhere, instead of each control inventing its own
+   (or, worse, `outline: none` with nothing in its place). */
+:where(button, select, input, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* The grid scrolls constantly; a thin, theme-aware scrollbar keeps it from dominating. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--elevated-hover) transparent;
+}
+
+/* ==========================================================================================
+   Motion.
+
+   Deliberately small. This is a tool people press keys in at speed: a tile that lifts under the
+   pointer, a badge that springs in, a drop target that pulses — ten of those on screen at once
+   read as fidgeting, and every one of them outlasts the next keystroke. What is left are the
+   three animations that *report state* — a shimmer while a thumbnail resolves, a spinner while
+   a job runs, a comet on the progress track while a scan has no known total — plus one short
+   fade so overlays arrive rather than snap.
+
+   Everything here is opt-in via a class, and all of it is switched off wholesale under
+   `prefers-reduced-motion` at the bottom of this file.
+   ========================================================================================== */
+
+:root {
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1); /* fast start, soft landing */
+}
+
+@keyframes ms-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* A light sweep across a placeholder — reads as "working", where a flat pulse reads as "stuck". */
+@keyframes ms-shimmer {
+  from {
+    background-position: -160% 0;
+  }
+  to {
+    background-position: 260% 0;
+  }
+}
+
+/* An indeterminate bar: a short comet running the width of the track. */
+@keyframes ms-indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+
+@keyframes ms-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.anim-fade {
+  animation: ms-fade-in 120ms var(--ease-out) both;
+}
+.anim-spin {
+  animation: ms-spin 900ms linear infinite;
+}
+
+/* Skeleton shimmer for a thumbnail that has not resolved yet. */
+.shimmer {
+  background-image: linear-gradient(
+    100deg,
+    transparent 20%,
+    color-mix(in srgb, var(--text) 9%, transparent) 45%,
+    transparent 70%
+  );
+  background-size: 220% 100%;
+  animation: ms-shimmer 1.25s linear infinite;
+}
+
+/* The indeterminate comet used while a scan is running with no known total. */
+.bar-indeterminate::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 30%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: ms-indeterminate 1.15s ease-in-out infinite;
+}
+
+/* ==========================================================================================
+   Surfaces.
+   ========================================================================================== */
+
+/* Overlay surface: modals, the trash drawer, floating pills. Fully opaque — a frosted panel
+   put the grid's contents *through* the settings you were trying to read. */
+.surface {
+  background: var(--panel);
+}
+
+/* A hairline highlight along the top edge — what makes a flat panel read as *lifted* rather
+   than as a differently-coloured rectangle. */
+.edge-lit {
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent),
+    var(--shadow-2);
+}
+
+/* Every clickable surface changes colour on press — colour only. A control that moves under
+   the cursor makes a bar this dense feel unstable. */
+.press {
+  transition:
+    background-color 100ms var(--ease-out),
+    color 100ms var(--ease-out);
+}
+
+/* Grid tiles: the border is the only thing that changes. No lift, no scale, no glow — a tile
+   is a photo, and the selection state is carried by the checkmark in its corner instead. */
+.tile {
+  transition: border-color 100ms var(--ease-out);
+}
+
+/* Sidebar rows and menu items: a colour wash, plus a static 2px rail on the active row. The
+   rail marks where you are, so it stays; it used to grow in on hover as well, which marked
+   nothing at all. */
+.row-rail {
+  position: relative;
+  transition: background-color 100ms var(--ease-out);
+}
+.row-rail[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+/* ==========================================================================================
+   Reduced motion. Not a courtesy: for some people the shimmer is the difference between using
+   this app and not. Everything above collapses to an instant state change; nothing depends on
+   an animation having *run* to be correct.
+   ========================================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .shimmer {
+    background-image: none;
+    background-color: color-mix(in srgb, var(--text) 8%, transparent);
+  }
 }

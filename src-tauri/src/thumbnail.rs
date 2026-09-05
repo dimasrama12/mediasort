@@ -11,7 +11,9 @@ static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// and write a JPEG to `dst`. Writes to a temp sibling then renames, so a crash
 /// mid-encode never leaves a half-written cache file.
 pub fn generate_thumbnail(src: &Path, dst: &Path, max_edge: u32) -> Result<(), String> {
-    let img = image::open(src).map_err(|e| format!("decode {}: {e}", src.display()))?;
+    // decode_any, not image::open: it adds the WIC fallback, which is what makes HEIC/HEIF
+    // photos show a real thumbnail instead of a blank placeholder tile.
+    let img = crate::media::decode_any(&src.to_string_lossy())?;
     let scaled = if img.width().max(img.height()) <= max_edge {
         img
     } else {
@@ -68,12 +70,13 @@ pub fn thumb_cache_key(normalized_path: &str, mtime: i64, size: u64) -> String {
     blake3::hash(data.as_bytes()).to_hex().to_string()
 }
 
-/// Formats decodable by the `image` crate in this slice. heic/heif/svg/video
-/// are intentionally excluded (own follow-on plans).
+/// Formats we can turn into a thumbnail: everything the `image` crate decodes, plus heic/heif
+/// via the WIC fallback in `media::decode_any`. svg and video remain excluded (vector rendering
+/// and frame extraction are separate problems).
 pub fn is_raster_supported(ext: &str) -> bool {
     matches!(
         ext.to_lowercase().as_str(),
-        "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "tiff"
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "tiff" | "tif" | "heic" | "heif"
     )
 }
 
@@ -128,10 +131,10 @@ mod tests {
 
     #[test]
     fn raster_gate_matches_supported_only() {
-        for e in ["jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "JPG", "PNG"] {
+        for e in ["jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "heic", "heif", "JPG", "HEIC"] {
             assert!(is_raster_supported(e), "{e} should be supported");
         }
-        for e in ["heic", "heif", "svg", "mp4", "txt", ""] {
+        for e in ["svg", "mp4", "mkv", "txt", ""] {
             assert!(!is_raster_supported(e), "{e} should not be supported");
         }
     }

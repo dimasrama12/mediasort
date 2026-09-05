@@ -1,10 +1,6 @@
 import { useAppStore } from "../store/useAppStore";
 import { moveFiles, renameFiles, restoreFromTrash, trashFiles } from "./commands";
-
-const dirname = (p: string) => {
-  const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
-  return i >= 0 ? p.slice(0, i) : p;
-};
+import { dirname } from "./paths";
 
 /** Undo the top operation and apply the matching store reducer. */
 export async function undo(): Promise<void> {
