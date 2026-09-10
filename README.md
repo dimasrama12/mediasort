@@ -16,7 +16,10 @@ Library managers like Eagle, digiKam, and PhotoPrism are built for cataloging a 
 ## ✨ Features
 
 - **Similarity grouping** — clusters near-duplicate images by perceptual hash (dHash by default, or DCT-based pHash for more robustness), plus time-based grouping (EXIF capture time, falling back to file mtime). Group by Similar / Time / Date / Type, with live counts that update as you sort.
-- **One-pass sorting** — map up to 9 target folders to number keys; press a number to move the selected file(s) instantly. Drag-and-drop and multi-select both work.
+- **One-pass sorting** — any number of target folders, each bound to a key you choose — a digit, a letter or a symbol. New folders take the next free key automatically; click a folder's key chip to change it. Drag-and-drop and multi-select both work.
+- **Several libraries at once** — scan one or more parent folders, and add more later with the blue **+** or `Ctrl+Shift+O` without closing what you already have open.
+- **Sort target folders A→Z** — a sidebar toggle; the digit keys follow the new order, keys you set by hand stay put.
+- **Scoped grouping** — with several libraries open, Group asks which ones to cover.
 - **Sharp previews at scale** — thumbnails are generated and cached on disk (not re-encoded through IPC), so grids of thousands of files stay smooth. Full-size preview with zoom, rotation (written back to the file), and inline video playback.
 - **HEIC/HEIF support** — decoded via Windows WIC, no external codec install required.
 - **EXIF viewer** — inspect a file's metadata inline; values are sanitized and length-capped since EXIF is attacker-controlled input.
@@ -31,10 +34,10 @@ See [`FEATURES.md`](FEATURES.md) for the full list, [`docs/DESIGN.md`](docs/DESI
 ## 🚀 Quick Start (Users)
 
 1. Download the latest installer from the [Releases](../../releases) page and run it.
-2. Launch MediaSort, then **Scan Folder** (`Ctrl+O`) to load an unsorted folder.
-3. Create target folders (`Ctrl+N`) — each gets mapped to a number key `1`–`9`.
+2. Launch MediaSort, then **Scan Folder** (`Ctrl+O`) to load an unsorted folder. Add a second library later with the blue **+** or `Ctrl+Shift+O` — the first one stays open.
+3. Create target folders (`Ctrl+N`) — each gets the next free key. Click a folder's key chip to bind it to any letter or symbol instead; there is no limit on how many folders you can have.
 4. Optionally group by similarity or time from the sidebar to spot duplicates.
-5. Select a file (or a group) and press its target folder's number key to move it. Anything you don't want goes to trash (`Delete`) — nothing is deleted permanently without a separate, confirmed action.
+5. Select a file (or a group) and press its target folder's key to move it. Anything you don't want goes to trash (`Delete`) — nothing is deleted permanently without a separate, confirmed action.
 
 ## ⌨️ Keyboard Shortcuts
 
@@ -43,14 +46,15 @@ All shortcuts are rebindable in **Settings → Shortcuts**; these are the defaul
 | Action | Shortcut | Action | Shortcut |
 | :--- | :--- | :--- | :--- |
 | Scan / open folder | `Ctrl+O` | Move to trash | `Delete` / `B` |
-| New target folder | `Ctrl+N` | Delete permanently | `Shift+Delete` |
-| Move file to target folder | `1`–`9` | Return files to library | `` ` `` |
-| Batch rename | `Shift+R` | Select all | `Ctrl+A` |
-| Toggle sidebar | `Ctrl+H` | Open trash | `T` |
-| Grid / list view | `[` / `]` | Focus search | `Ctrl+F` |
-| Refresh | `Ctrl+R` / `F5` | Undo / redo | `Ctrl+Z` / `Ctrl+Y` |
-| Open settings | `Ctrl+,` | Exit application | `Alt+X` |
-| Rotate left / right (preview) | `L` / `R` | Zoom in / out / reset (preview) | `+` / `-` / `0` |
+| Add folder to the scan | `Ctrl+Shift+O` | Delete permanently | `Shift+Delete` |
+| New target folder | `Ctrl+N` | Return files to library | `` ` `` |
+| Move file to target folder | the folder's key | Select all | `Ctrl+A` |
+| Batch rename | `Shift+R` | Open trash | `T` |
+| Toggle sidebar | `Ctrl+H` | Focus search | `Ctrl+F` |
+| Grid / list view | `[` / `]` | Undo / redo | `Ctrl+Z` / `Ctrl+Y` |
+| Refresh | `Ctrl+R` / `F5` | Open settings | `Ctrl+,` |
+| Exit application | `Alt+X` | Rotate left / right (preview) | `L` / `R` |
+| Zoom in / out / reset (preview) | `+` / `-` / `0` | | |
 
 ## 🛠️ Development
 

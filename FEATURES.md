@@ -1,6 +1,6 @@
 # MediaSort Features
 
-MediaSort is a fast, keyboard-driven desktop app for sorting large dumps of photos and videos: scan a folder, cluster the near-duplicates, and file everything into target folders in one pass.
+MediaSort is a fast, keyboard-driven desktop app for sorting large dumps of photos and videos: scan one or more parent folders, cluster the near-duplicates, and file everything into target folders in one pass.
 
 ## Core Features
 
@@ -8,6 +8,7 @@ MediaSort is a fast, keyboard-driven desktop app for sorting large dumps of phot
 - **Visual similarity** — clusters near-duplicate images by perceptual hash (dHash by default, DCT-based pHash optional for more robustness to gamma/scale changes).
 - **Time grouping** — clusters files shot close together, using EXIF `DateTimeOriginal` and falling back to file modified time.
 - **Group by Date / Type** — quick client-side grouping by calendar day or file extension.
+- **Scoped grouping** — with several libraries open, Group asks which ones to cover.
 - Group counts stay live: moving, trashing, or restoring files updates every group's count immediately, in every grouping mode.
 
 ### 2. Fast, Sharp Previews
@@ -18,7 +19,9 @@ MediaSort is a fast, keyboard-driven desktop app for sorting large dumps of phot
 - EXIF viewer shows a file's metadata inline; values are sanitized and length-capped.
 
 ### 3. One-Pass Sorting
-- Map up to 9 target folders to number keys `1`–`9`; press a key to move the current selection instantly.
+- Any number of target folders, each bound to a key you choose — a digit, a letter or a symbol. New folders take the next free key automatically; click a folder's key chip to change it.
+- **Several libraries at once** — scan one or more parent folders, and add more later with the blue **+** or `Ctrl+Shift+O` without closing what you already have open.
+- **Sort target folders A→Z** — a sidebar toggle; the digit keys follow the new order, keys you set by hand stay put.
 - Drag-and-drop and multi-select (`Ctrl`/`Shift` click, select-all) both work.
 - Batch rename with a pattern + numbering, live preview before committing.
 - Real-time search/filter across the current file list.
