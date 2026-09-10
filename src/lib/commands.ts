@@ -39,7 +39,7 @@ export const ensureThumbnail = async (path: string): Promise<string> =>
 export const clearThumbnailCache = (): Promise<void> =>
   invoke<void>("clear_thumbnail_cache");
 
-/** Create (or reuse) a target folder under `base`; returns its FolderInfo + shortcut. */
+/** Create (or reuse) a target folder under `base`; returns its FolderInfo + key. */
 export const createFolder = (base: string, name: string): Promise<FolderInfo> =>
   invoke<FolderInfo>("create_folder", { base, name });
 
@@ -47,20 +47,37 @@ export const createFolder = (base: string, name: string): Promise<FolderInfo> =>
 export const addExistingFolder = (path: string): Promise<FolderInfo> =>
   invoke<FolderInfo>("add_existing_folder", { path });
 
-/** Register several picked folders at once; returns the full 1–9 list (extras beyond 9 skipped). */
+/** Register several picked folders at once; returns the whole target list. There is no cap:
+ *  a folder the key pool has run dry on is registered keyless (drag-only) rather than refused. */
 export const addExistingFolders = (paths: string[]): Promise<FolderInfo[]> =>
   invoke<FolderInfo[]>("add_existing_folders", { paths });
 
-/** List the registered 1–9 target folders, each with its **live** on-disk file count. */
+/** List the registered target folders, each with its **live** on-disk file count. Read-only:
+ *  it sorts for display and never re-keys, so a Ctrl+R cannot move anyone's keys around. */
 export const listTargetFolders = (): Promise<FolderInfo[]> =>
   invoke<FolderInfo[]>("list_target_folders");
 
 /** Forget every registered target folder (the directories on disk are left alone). Called when a
- *  new root is scanned, so a fresh session never inherits the last one's 1–9 shortcuts. */
+ *  new root is scanned, so a fresh session never inherits the last one's folder keys. */
 export const clearTargetFolders = (): Promise<void> => invoke<void>("clear_target_folders");
 
+/** Tell the backend which keys the app's own shortcuts occupy, so a target folder is never
+ *  auto-assigned one. Pushed at startup and after every rebind — the binding map lives here, so
+ *  this side is the only one that can know. */
+export const setReservedKeys = (keys: string[]): Promise<void> =>
+  invoke<void>("set_reserved_keys", { keys });
+
+/** Point a target folder at a key the user picked; returns the refreshed list. Rejects when
+ *  another folder already holds it. */
+export const setFolderKey = (id: string, key: string): Promise<FolderInfo[]> =>
+  invoke<FolderInfo[]>("set_folder_key", { id, key });
+
+/** Re-apply the A→Z ordering after the preference has been saved; returns the reordered list. */
+export const reorderFolders = (): Promise<FolderInfo[]> =>
+  invoke<FolderInfo[]>("reorder_folders");
+
 /** Re-adopt a saved session: grant its roots + target folders (access scope and asset protocol)
- *  and re-register the folders under their 1–9 shortcuts. Returns the live folder list. */
+ *  and re-register the folders under their keys. Returns the live folder list. */
 export const adoptSession = (roots: string[], folders: string[]): Promise<FolderInfo[]> =>
   invoke<FolderInfo[]>("adopt_session", { roots, folders });
 

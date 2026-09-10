@@ -20,8 +20,8 @@ import {
 import { trashFiles, revealInExplorer } from "../lib/commands";
 import { moveToFolder, returnToLibrary, syncFolders } from "../lib/fileActions";
 import { formatBytes } from "./Toolbar";
-import { bindingsWithDefaults, matchAction } from "../lib/keybindings";
-import { scanFlow, exitApp } from "../lib/appActions";
+import { bindingsWithDefaults, eventToCombo, matchAction } from "../lib/keybindings";
+import { scanFlow, addScanFlow, exitApp } from "../lib/appActions";
 import type { FileInfo } from "../lib/types";
 
 /** The readable half of whatever a rejected command threw. Tauri rejects with a plain string;
@@ -68,6 +68,7 @@ export function FileGrid() {
   const browseFiles = useAppStore((s) => s.browseFiles);
   const setVisibleIds = useAppStore((s) => s.setVisibleIds);
   const refreshNonce = useAppStore((s) => s.refreshNonce);
+  const scanning = useAppStore((s) => s.scanning);
   const parentRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
@@ -272,6 +273,10 @@ export function FileGrid() {
             e.preventDefault();
             void scanFlow().catch(() => {});
             return;
+          case "addScanFolder":
+            e.preventDefault();
+            void addScanFlow().catch(() => {});
+            return;
           case "newFolder":
             e.preventDefault();
             st.setSidebarCollapsed(false); // make sure the input is visible
@@ -373,14 +378,23 @@ export function FileGrid() {
 
       if (files.length === 0) return;
 
-      // Move to target folder N (bare 1–9): the selection if any, else the focused file.
+      // Move to a target folder by its key: the selection if any, else the focused file.
+      //
+      // The key is any combo the user gave the folder — "1", "F", ";" — compared in the same
+      // canonical form the keybinding editor produces, which is what lets one string answer both
+      // "what fires this?" and "does it clash?".
+      //
+      // Position matters: this sits *after* the rebindable-action switch above, so an app
+      // shortcut always wins. The registry refuses conflicting keys, but the grid does not rely
+      // on that — a shortcut going dead is far worse than a folder key that never fires.
       //
       // Works while browsing a target folder too, which is the keyboard half of folder-to-folder
-      // moves (§2): open folder 1, press 3, and those photos are in folder 3. Pressing the digit
-      // of the folder you are already looking at is a no-op rather than a move onto itself.
-      if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key >= "1" && e.key <= "9") {
-        const folder = folders.find((f) => f.shortcut === Number(e.key));
-        if (!folder || folder.id === st.browseFolder?.id) return;
+      // moves (§2): open Family, press F, and those photos are in Foto Lama. Pressing the key of
+      // the folder you are already looking at is a no-op rather than a move onto itself.
+      const combo = eventToCombo(e);
+      const folder = combo ? folders.find((f) => f.key !== "" && f.key === combo) : undefined;
+      if (folder) {
+        if (folder.id === st.browseFolder?.id) return;
         const sel =
           selectedIds.length > 0
             ? files.filter((f) => selectedIds.includes(f.id)) // visible order
@@ -388,7 +402,7 @@ export function FileGrid() {
         if (sel.length === 0) return;
         e.preventDefault();
         // A refused move is the one outcome with nothing to see: the tile stays, the count does
-        // not budge, and the shortcut reads as broken. Say what went wrong instead.
+        // not budge, and the key reads as broken. Say what went wrong instead.
         st.setNotice(null);
         void moveToFolder(sel, folder).catch((err) =>
           useAppStore.getState().setNotice(`Could not move to ${folder.name}: ${messageOf(err)}`),
@@ -432,7 +446,7 @@ export function FileGrid() {
   }, [focusedId, visible, rowVirtualizer, columns]);
 
   return (
-    <div className="flex-1 min-w-0 flex flex-col">
+    <div className="relative flex-1 min-w-0 flex flex-col">
       <GridHeader shown={visible} total={source.length} />
       <div
         ref={parentRef}
@@ -514,6 +528,20 @@ export function FileGrid() {
           })}
         </div>
       </div>
+      {/* Add a library without ending the session (§2). Pinned to the viewport corner rather than
+          placed in flow, so it does not ride away with the thumbnails on a long scroll. Shown on
+          an empty app too, where it simply performs a first scan. */}
+      {!scanning && (
+        <button
+          type="button"
+          onClick={() => void addScanFlow().catch(() => {})}
+          aria-label="Add folder to the scan"
+          title="Add folder to the scan (Ctrl+Shift+O)"
+          className="press absolute bottom-4 left-4 z-10 grid h-9 w-9 place-items-center rounded-full bg-[var(--accent)] text-xl leading-none text-white shadow-[var(--shadow-3)] hover:bg-[var(--accent-hover)]"
+        >
+          +
+        </button>
+      )}
       <Notice />
       <SelectionBar />
       {marquee && (
@@ -538,7 +566,7 @@ export function FileGrid() {
  *
  * Every file operation the grid fires used to end in `.catch(() => {})`. That is right for a
  * *cancelled* operation and wrong for a failed one: a move the backend refuses looks exactly
- * like a shortcut that does nothing, which is precisely how the 1–9 keys came to be described
+ * like a shortcut that does nothing, which is precisely how the folder keys came to be described
  * as broken. It sits above the selection bar, in the same corner-free strip, and clears itself
  * on the next attempt so it can never describe a state that has moved on.
  */

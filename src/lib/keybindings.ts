@@ -7,6 +7,7 @@
  *  the full-screen preview is open (image rotation). */
 export type ActionId =
   | "scanFolder"
+  | "addScanFolder"
   | "trash"
   | "batchRename"
   | "toggleSidebar"
@@ -40,6 +41,12 @@ export interface ActionMeta {
 /** Ordered so the Settings editor and combo-resolution iterate deterministically. */
 export const ACTIONS: ActionMeta[] = [
   { id: "scanFolder", label: "Open / scan folder", scope: "global", defaults: ["Ctrl+O"] },
+  {
+    id: "addScanFolder",
+    label: "Add folder to the scan",
+    scope: "global",
+    defaults: ["Ctrl+Shift+O"],
+  },
   { id: "newFolder", label: "New target folder", scope: "global", defaults: ["Ctrl+N"] },
   { id: "trash", label: "Move to trash", scope: "global", defaults: ["Delete", "B"] },
   { id: "deletePermanently", label: "Delete permanently", scope: "global", defaults: ["Shift+Delete"] },
@@ -147,4 +154,51 @@ export const DOUBLE_TAP_MS = 400;
  *  there was none. Pure so the App-level handler stays a two-liner and this stays testable. */
 export function isDoubleTap(last: number | null, now: number, windowMs = DOUBLE_TAP_MS): boolean {
   return last != null && now - last <= windowMs && now >= last;
+}
+
+/** Every key the app can hand to a target folder, in the order it hands them out.
+ *  Mirrored **verbatim** from `src-tauri/src/folders.rs::KEY_POOL` — same arrangement as
+ *  `paths.ts` mirroring `paths.rs`: two copies, one order, a test on each side pinning it. */
+export const KEY_POOL = "1234567890QWERTYUIOPASDFGHJKLZXCVBNM;',./-=";
+
+/** Where `key` sits in the pool, for sorting the sidebar. Keys outside the pool (a hand-set
+ *  combo like "Shift+:") and the empty key sort last, in whatever order they arrived — the
+ *  callers use a stable sort, so that is insertion order. */
+export function keyRank(key: string): number {
+  const i = key.length === 1 ? KEY_POOL.indexOf(key) : -1;
+  return i < 0 ? Number.POSITIVE_INFINITY : i;
+}
+
+/** Keys the app's structure owns, which are therefore never assignable to a target folder and
+ *  never appear in the binding editor: grid navigation, the modal verbs, and undo/redo. They are
+ *  not bindings — there is no action to rebind them off — so they are listed rather than derived. */
+export const FIXED_KEYS: string[] = [
+  "J",
+  "K",
+  "Enter",
+  "Escape",
+  "Space",
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "ArrowDown",
+  "Ctrl+Z",
+  "Ctrl+Y",
+  "Ctrl+Shift+Z",
+];
+
+/** Every key a target folder must not be given: the combos the user's **global** actions occupy,
+ *  plus `FIXED_KEYS`.
+ *
+ *  Preview-scope actions (rotate, zoom) are deliberately excluded. They fire only while the
+ *  full-screen preview is open, and the preview returns before the grid's folder-key lookup is
+ *  ever reached — so reserving `L`, `R`, `+`, `-`, `0` would cost five pool entries to prevent a
+ *  collision that cannot happen. */
+export function reservedKeys(bindings: Keybindings): string[] {
+  const out = new Set<string>(FIXED_KEYS);
+  for (const a of ACTIONS) {
+    if (a.scope !== "global") continue;
+    for (const c of bindings[a.id] ?? []) out.add(c);
+  }
+  return [...out];
 }

@@ -10,6 +10,7 @@ import type {
 } from "../lib/types";
 import { DEFAULT_SETTINGS } from "../lib/types";
 import { normalizePath } from "../lib/paths";
+import { keyRank } from "../lib/keybindings";
 import { focusAfterRemoval } from "../lib/afterRemoval";
 import { syncGroupMembership } from "../lib/groupMembership";
 import type { SortBy, SortDir } from "../lib/sort";
@@ -47,6 +48,9 @@ interface AppState {
   files: FileInfo[];
   scanning: boolean;
   scanned: number;
+  /** Files already counted before the current scan began, so `scanned` can accumulate when a
+   *  library is *added* to the session rather than replacing it. */
+  scanBase: number;
   /** True while a grouping run is in flight. Lives in the store (not the Toolbar) so the
    *  window-level Esc handler can see it and abort without reaching into a component. */
   grouping: boolean;
@@ -78,6 +82,11 @@ interface AppState {
   activeGroupId: string | null;
   /** Order of the Date groups: chronological (default) or biggest-day-first (§4). */
   dateGroupSort: DateGroupSort;
+  /** The grouping the user asked for while the library picker is open; null = picker closed (§5). */
+  groupScopeMode: Exclude<GroupMode, "none"> | null;
+  /** Roots the next grouping run covers. Seeded with every root, and re-seeded when one is added
+   *  so a newly-scanned library is included by default rather than silently skipped. */
+  groupRoots: string[];
   /** Namespaced bucket keys hidden from the grid, e.g. "type:png" (§5). */
   hiddenBuckets: string[];
   query: string;
@@ -116,6 +125,7 @@ interface AppState {
   /** The one thing that went wrong that the user has not seen yet, or null. */
   notice: string | null;
   startScan: () => void;
+  startAddScan: (newRoots: string[]) => void;
   addFiles: (batch: FileInfo[]) => void;
   finishScan: (total: number) => void;
   reset: () => void;
@@ -154,6 +164,9 @@ interface AppState {
   completeTrash: (ids: string[], items: TrashItem[]) => void;
   applyGroups: (groups: FileGroup[], mode: Exclude<GroupMode, "none">) => void;
   clearGroups: () => void;
+  requestGroupScope: (mode: Exclude<GroupMode, "none">) => void;
+  closeGroupScope: () => void;
+  setGroupRoots: (roots: string[]) => void;
   setQuery: (query: string) => void;
   openRename: () => void;
   closeRename: () => void;
@@ -273,6 +286,7 @@ export const useAppStore = create<AppState>()(reconcileGroups((set, get) => ({
   files: [],
   scanning: false,
   scanned: 0,
+  scanBase: 0,
   grouping: false,
   groupProgress: null,
   previewId: null,
@@ -293,6 +307,8 @@ export const useAppStore = create<AppState>()(reconcileGroups((set, get) => ({
   groupMode: "none",
   activeGroupId: null,
   dateGroupSort: "chronological",
+  groupScopeMode: null,
+  groupRoots: [],
   hiddenBuckets: [],
   query: "",
   renameOpen: false,
@@ -319,6 +335,7 @@ export const useAppStore = create<AppState>()(reconcileGroups((set, get) => ({
       scanning: true,
       files: [],
       scanned: 0,
+      scanBase: 0,
       grouping: false,
       groupProgress: null,
       previewId: null,
@@ -332,6 +349,8 @@ export const useAppStore = create<AppState>()(reconcileGroups((set, get) => ({
       groups: [],
       groupMode: "none",
       activeGroupId: null,
+      groupScopeMode: null,
+      groupRoots: [],
       hiddenBuckets: [],
       browseFolder: null,
       browseFiles: [],
@@ -341,13 +360,47 @@ export const useAppStore = create<AppState>()(reconcileGroups((set, get) => ({
       exifFileId: null,
       query: "",
     }),
-  addFiles: (batch) => set((s) => ({ files: [...s.files, ...batch] })),
-  finishScan: (total) => set({ scanning: false, scanned: total }),
+  /** Add libraries to the session instead of replacing it (§2).
+   *
+   *  The counterpart to `startScan`, and deliberately almost its opposite: files, target folders
+   *  and their keys, the undo stack, the search box and the selection all survive, because the
+   *  session is *continuing*. Only the grouping is dropped — a half-grouped library misleads,
+   *  with the sidebar claiming "Group 3 — 47 files" while the photos that belong in it sit under
+   *  "Ungrouped" because they arrived after the run. */
+  startAddScan: (newRoots) =>
+    set((s) => ({
+      roots: [...s.roots, ...newRoots],
+      scanning: true,
+      scanBase: s.scanned,
+      groups: [],
+      groupMode: "none",
+      activeGroupId: null,
+      files: s.files.map((f) => (f.groupId === null ? f : { ...f, groupId: null })),
+      grouping: false,
+      groupProgress: null,
+      contextMenu: null,
+      // A library the user has not thought about yet is grouped by default rather than quietly
+      // left out; an untouched (empty) choice still means "all of them" (§5).
+      groupRoots: s.groupRoots.length === 0 ? [] : [...s.groupRoots, ...newRoots],
+    })),
+  /** Append a scan batch, skipping ids already in the library.
+   *
+   *  The backend dedupes within one run, but not across runs — adding `D:\foto` to a session that
+   *  already scanned `D:\foto\2024` would otherwise list those files twice, and every id-keyed
+   *  cache would then have two tiles fighting over one entry. */
+  addFiles: (batch) =>
+    set((s) => {
+      const have = new Set(s.files.map((f) => f.id));
+      const fresh = batch.filter((f) => !have.has(f.id));
+      return fresh.length === 0 ? {} : { files: [...s.files, ...fresh] };
+    }),
+  finishScan: (total) => set((s) => ({ scanning: false, scanned: s.scanBase + total })),
   reset: () =>
     set({
       files: [],
       scanning: false,
       scanned: 0,
+      scanBase: 0,
       grouping: false,
       groupProgress: null,
       previewId: null,
@@ -367,6 +420,8 @@ export const useAppStore = create<AppState>()(reconcileGroups((set, get) => ({
       groups: [],
       groupMode: "none",
       activeGroupId: null,
+      groupScopeMode: null,
+      groupRoots: [],
       hiddenBuckets: [],
       browseFolder: null,
       browseFiles: [],
@@ -576,7 +631,7 @@ export const useAppStore = create<AppState>()(reconcileGroups((set, get) => ({
   upsertFolder: (f) =>
     set((s) => ({
       folders: [...s.folders.filter((x) => x.id !== f.id), f].sort(
-        (a, b) => a.shortcut - b.shortcut,
+        (a, b) => keyRank(a.key) - keyRank(b.key),
       ),
     })),
   completeMove: (index, folderId, toPath) =>
@@ -687,6 +742,18 @@ export const useAppStore = create<AppState>()(reconcileGroups((set, get) => ({
       groupMode: "none",
       activeGroupId: null,
     })),
+  /** Open the "which libraries?" picker for `mode` (§5). The Toolbar only calls this with two or
+   *  more roots open: with one there is nothing to choose, and a modal that always says the same
+   *  thing is a modal people learn to dismiss without reading. */
+  requestGroupScope: (mode) =>
+    set((s) => ({
+      groupScopeMode: mode,
+      // Any root not yet decided on is included: an added library the user has not thought about
+      // should be grouped, not quietly left out.
+      groupRoots: s.groupRoots.length === 0 ? [...s.roots] : s.groupRoots,
+    })),
+  closeGroupScope: () => set({ groupScopeMode: null }),
+  setGroupRoots: (roots) => set({ groupRoots: roots }),
   setQuery: (query) => set({ query }),
   openRename: () => set({ renameOpen: true }),
   closeRename: () => set({ renameOpen: false }),

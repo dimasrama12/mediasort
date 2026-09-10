@@ -194,7 +194,7 @@ test("the preview reads from the browsed folder when one is open", () => {
   const inFolder = { ...img("z"), path: "C:/base/fam/z.jpg" };
   useAppStore.setState({
     files: [],
-    browseFolder: { id: "fam", name: "fam", path: "C:/base/fam", shortcut: 1, fileCount: 1 },
+    browseFolder: { id: "fam", name: "fam", path: "C:/base/fam", key: "1", keyCustom: false, fileCount: 1 },
     browseFiles: [inFolder],
     previewId: "z",
   });
@@ -253,8 +253,8 @@ test("only a still that BOTH decoders refuse falls back to the default app", asy
  * and it used to be the one place you could not act on that decision.
  * ---------------------------------------------------------------------------------------- */
 
-const fam = { id: "fam", name: "Family", path: "C:/base/fam", shortcut: 1, fileCount: 0 };
-const trip = { id: "trip", name: "Trip", path: "C:/base/trip", shortcut: 2, fileCount: 0 };
+const fam = { id: "fam", name: "Family", path: "C:/base/fam", key: "1", keyCustom: false, fileCount: 0 };
+const trip = { id: "trip", name: "Trip", path: "C:/base/trip", key: "2", keyCustom: false, fileCount: 0 };
 
 test("an image that renders has no open-in-default-app control", () => {
   useAppStore.setState({ files: [img("a")], previewId: "a" });
@@ -309,7 +309,7 @@ test("filing the last photo closes the viewer — there is nothing behind it", a
 test("an unbound digit does nothing", () => {
   useAppStore.setState({ files: [img("a")], visibleIds: ["a"], previewId: "a", folders: [fam] });
   render(<Preview />);
-  fireEvent.keyDown(window, { key: "7" }); // no folder on shortcut 7
+  fireEvent.keyDown(window, { key: "7" }); // no folder holds the key "7"
   expect(moveFiles).not.toHaveBeenCalled();
   expect(useAppStore.getState().previewId).toBe("a");
 });

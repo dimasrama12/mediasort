@@ -126,7 +126,7 @@ test("Escape and the close button both shut it", async () => {
 test("it reads from the browsed folder when one is open", async () => {
   useAppStore.setState({
     files: [],
-    browseFolder: { id: "fam", name: "fam", path: "C:/base/fam", shortcut: 1, fileCount: 1 },
+    browseFolder: { id: "fam", name: "fam", path: "C:/base/fam", key: "1", keyCustom: false, fileCount: 1 },
     browseFiles: [{ ...mk("b"), path: "C:/base/fam/b.jpg" }],
     exifFileId: "b",
   });

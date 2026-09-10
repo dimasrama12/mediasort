@@ -6,11 +6,11 @@ vi.mock("../lib/commands", () => ({
     id: name.toLowerCase(),
     name,
     path: `C:/base/${name}`,
-    shortcut: 1,
+    key: "1", keyCustom: false,
     fileCount: 0,
   })),
   renameFolder: vi.fn(async (_id: string, name: string) => [
-    { id: name.toLowerCase(), name, path: `C:/base/${name}`, shortcut: 1, fileCount: 0 },
+    { id: name.toLowerCase(), name, path: `C:/base/${name}`, key: "1", keyCustom: false, fileCount: 0 },
   ]),
   deleteFolder: vi.fn(async (_id: string) => []),
   addExistingFolders: vi.fn(async (paths: string[]) =>
@@ -18,7 +18,7 @@ vi.mock("../lib/commands", () => ({
       id: path.toLowerCase(),
       name: path.split("/").pop()!,
       path,
-      shortcut: i + 1,
+      key: String(i + 1), keyCustom: false,
       fileCount: 0,
     })),
   ),
@@ -37,6 +37,11 @@ vi.mock("../lib/commands", () => ({
   listTrash: vi.fn(async () => []),
   listTargetFolders: vi.fn(async () => useAppStore.getState().folders),
   trashFiles: vi.fn(async () => []),
+  setFolderKey: vi.fn(async (id: string, key: string) =>
+    useAppStore.getState().folders.map((f) => (f.id === id ? { ...f, key, keyCustom: true } : f)),
+  ),
+  reorderFolders: vi.fn(async () => useAppStore.getState().folders),
+  saveSettings: vi.fn(async () => {}),
 }));
 
 import { Sidebar } from "./Sidebar";
@@ -49,14 +54,16 @@ import {
   pickFolders,
   moveFiles,
 } from "../lib/commands";
+import * as commands from "../lib/commands";
 import { useAppStore } from "../store/useAppStore";
 import type { FileGroup, FolderInfo } from "../lib/types";
 
-const mkFolder = (id: string, shortcut: number): FolderInfo => ({
+const mkFolder = (id: string, key: string): FolderInfo => ({
   id,
   name: id,
   path: `C:/base/${id}`,
-  shortcut,
+  key,
+  keyCustom: false,
   fileCount: 0,
 });
 
@@ -74,7 +81,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 test("renders the 1-9 legend from the store", () => {
-  useAppStore.setState({ folders: [mkFolder("fam", 1), mkFolder("work", 2)], roots: ["C:/base"] });
+  useAppStore.setState({ folders: [mkFolder("fam", "1"), mkFolder("work", "2")], roots: ["C:/base"] });
   render(<Sidebar />);
   expect(screen.getByText("fam")).toBeInTheDocument();
   expect(screen.getByText("work")).toBeInTheDocument();
@@ -90,15 +97,18 @@ test("New folder creates via command and adds it to the store", async () => {
   await waitFor(() => expect(useAppStore.getState().folders.map((f) => f.name)).toContain("Keep"));
 });
 
-test("New folder is disabled once nine folders exist", () => {
-  const nine = Array.from({ length: 9 }, (_, i) => mkFolder(`f${i}`, i + 1));
+test("a tenth target folder is offered, not blocked", () => {
+  // The nine-folder ceiling is gone: keys come from a 43-entry pool, and a folder past the end of
+  // it is still created (drag-only) rather than refused.
+  const nine = Array.from({ length: 9 }, (_, i) => mkFolder(`f${i}`, String(i + 1)));
   useAppStore.setState({ folders: nine, roots: ["C:/base"] });
   render(<Sidebar />);
-  expect(screen.getByText("All 9 keys used")).toBeDisabled();
+  expect(screen.getByText("New folder")).not.toBeDisabled();
+  expect(screen.queryByText(/all 9 keys used/i)).toBeNull();
 });
 
 test("delete button removes the folder via command and updates the store", async () => {
-  useAppStore.setState({ folders: [mkFolder("fam", 1)], roots: ["C:/base"] });
+  useAppStore.setState({ folders: [mkFolder("fam", "1")], roots: ["C:/base"] });
   render(<Sidebar />);
   fireEvent.click(screen.getByLabelText("Delete fam"));
   await waitFor(() => expect(deleteFolder).toHaveBeenCalledWith("fam"));
@@ -106,7 +116,7 @@ test("delete button removes the folder via command and updates the store", async
 });
 
 test("the rename button renames the folder via command", async () => {
-  useAppStore.setState({ folders: [mkFolder("fam", 1)], roots: ["C:/base"] });
+  useAppStore.setState({ folders: [mkFolder("fam", "1")], roots: ["C:/base"] });
   render(<Sidebar />);
   fireEvent.click(screen.getByLabelText("Rename fam"));
   const input = screen.getByDisplayValue("fam");
@@ -159,7 +169,7 @@ test("each group gets its own badge colour, cycling after seven", () => {
 });
 
 test("clicking a target folder browses its contents", async () => {
-  useAppStore.setState({ folders: [mkFolder("fam", 1)], roots: ["C:/base"], browseFolder: null });
+  useAppStore.setState({ folders: [mkFolder("fam", "1")], roots: ["C:/base"], browseFolder: null });
   render(<Sidebar />);
   fireEvent.click(screen.getByLabelText("Open fam"));
   await waitFor(() => expect(listFolderFiles).toHaveBeenCalledWith("C:/base/fam"));
@@ -192,17 +202,16 @@ test("Add existing folders registers every folder returned by a multi-select pic
   );
 });
 
-test("Add existing folders says so when more folders were picked than slots remain", async () => {
-  const nine = Array.from({ length: 9 }, (_, i) => mkFolder(`f${i}`, i + 1));
+test("Add existing folders stays available past the old nine-folder ceiling", async () => {
+  const nine = Array.from({ length: 9 }, (_, i) => mkFolder(`f${i}`, String(i + 1)));
   useAppStore.setState({ folders: nine, roots: ["C:/base"] });
   render(<Sidebar />);
-  // With all nine slots used the control is disabled, so pick is never even offered.
-  expect(screen.getByText("Add existing folders…").closest("button")).toBeDisabled();
+  expect(screen.getByText("Add existing folders…").closest("button")).not.toBeDisabled();
 });
 
 test("dropping a dragged selection on a folder moves those files into it", async () => {
   useAppStore.setState({
-    folders: [mkFolder("fam", 1)],
+    folders: [mkFolder("fam", "1")],
     roots: ["C:/base"],
     files: [mkFile("a", "C:/base/a.jpg"), mkFile("b", "C:/base/b.jpg")],
     draggingIds: ["a", "b"],
@@ -221,7 +230,7 @@ test("dropping a dragged selection on a folder moves those files into it", async
 });
 
 test("a drop with nothing being dragged does not call the backend", async () => {
-  useAppStore.setState({ folders: [mkFolder("fam", 1)], roots: ["C:/base"], draggingIds: [] });
+  useAppStore.setState({ folders: [mkFolder("fam", "1")], roots: ["C:/base"], draggingIds: [] });
   render(<Sidebar />);
   const row = screen.getByText("fam").closest("li")!;
   fireEvent.drop(row, { dataTransfer: {} });
@@ -229,7 +238,7 @@ test("a drop with nothing being dragged does not call the backend", async () => 
 });
 
 test("a drag in flight is announced by the folders, not by a banner over them", () => {
-  useAppStore.setState({ folders: [mkFolder("fam", 1)], roots: ["C:/base"], draggingIds: ["a"] });
+  useAppStore.setState({ folders: [mkFolder("fam", "1")], roots: ["C:/base"], draggingIds: ["a"] });
   render(<Sidebar />);
   // The "drop on a folder to move N files" strip is gone: the folder that lights up under the
   // cursor already says where the files are going, and says it in the right place.
@@ -237,7 +246,7 @@ test("a drag in flight is announced by the folders, not by a banner over them", 
 });
 
 test("the folder under the cursor turns solid accent, and back when the drag leaves", () => {
-  useAppStore.setState({ folders: [mkFolder("fam", 1)], roots: ["C:/base"], draggingIds: ["a"] });
+  useAppStore.setState({ folders: [mkFolder("fam", "1")], roots: ["C:/base"], draggingIds: ["a"] });
   render(<Sidebar />);
   const row = screen.getByRole("listitem");
   expect(row.className).not.toContain("bg-[var(--accent)]");
@@ -252,8 +261,8 @@ test("dropping onto another folder while browsing one moves the files between th
     id: "a", path: "C:/base/one/a.jpg", name: "a.jpg", extension: "jpg",
     size: 10, modifiedAt: 0, dateTaken: null, fileType: "image" as const, groupId: null,
   };
-  const one = { id: "one", name: "One", path: "C:/base/one", shortcut: 1, fileCount: 1 };
-  const two = { id: "two", name: "Two", path: "C:/base/two", shortcut: 2, fileCount: 0 };
+  const one = { id: "one", name: "One", path: "C:/base/one", key: "1", keyCustom: false, fileCount: 1 };
+  const two = { id: "two", name: "Two", path: "C:/base/two", key: "2", keyCustom: false, fileCount: 0 };
   useAppStore.setState({
     roots: ["C:/base"],
     folders: [one, two],
@@ -274,7 +283,7 @@ test("dropping onto another folder while browsing one moves the files between th
 });
 
 test("dropping a folder onto itself is not a move", async () => {
-  const one = { id: "one", name: "One", path: "C:/base/one", shortcut: 1, fileCount: 1 };
+  const one = { id: "one", name: "One", path: "C:/base/one", key: "1", keyCustom: false, fileCount: 1 };
   useAppStore.setState({
     roots: ["C:/base"],
     folders: [one],
@@ -297,7 +306,7 @@ test("a folder's count comes from the backend listing, not a running tally", asy
   // refresh (which re-lists from a backend that tracked nothing) reset every folder to 0.
   useAppStore.setState({
     roots: ["C:/base"],
-    folders: [{ id: "one", name: "One", path: "C:/base/one", shortcut: 1, fileCount: 42 }],
+    folders: [{ id: "one", name: "One", path: "C:/base/one", key: "1", keyCustom: false, fileCount: 42 }],
   });
   render(<Sidebar />);
   expect(await screen.findByTitle("42 items in this folder")).toBeTruthy();
@@ -341,3 +350,53 @@ test.each(["visual", "temporal", "date", "type"] as const)(
     expect(screen.getByText("Groups (2)")).toBeInTheDocument();
   },
 );
+
+/* ---------------------------------------------- custom keys, A-Z ordering, multi-root header */
+
+test("clicking a folder's key chip captures the next key", async () => {
+  act(() => useAppStore.setState({ folders: [mkFolder("fam", "1")], roots: ["C:/base"] }));
+  render(<Sidebar />);
+  fireEvent.click(screen.getByRole("button", { name: /change the key for fam/i }));
+  await act(async () => {
+    fireEvent.keyDown(window, { key: "f" });
+  });
+  await waitFor(() => expect(commands.setFolderKey).toHaveBeenCalledWith("fam", "F"));
+});
+
+test("a key already owned by an app shortcut is refused, and nothing is sent", async () => {
+  act(() => useAppStore.setState({ folders: [mkFolder("fam", "1")], roots: ["C:/base"] }));
+  render(<Sidebar />);
+  fireEvent.click(screen.getByRole("button", { name: /change the key for fam/i }));
+  await act(async () => {
+    fireEvent.keyDown(window, { key: "o", ctrlKey: true });
+  });
+  expect(await screen.findByText(/Open \/ scan folder/)).toBeInTheDocument();
+  expect(commands.setFolderKey).not.toHaveBeenCalled();
+});
+
+test("Escape cancels a capture without changing the key", async () => {
+  act(() => useAppStore.setState({ folders: [mkFolder("fam", "1")], roots: ["C:/base"] }));
+  render(<Sidebar />);
+  fireEvent.click(screen.getByRole("button", { name: /change the key for fam/i }));
+  await act(async () => {
+    fireEvent.keyDown(window, { key: "Escape" });
+  });
+  expect(commands.setFolderKey).not.toHaveBeenCalled();
+  expect(screen.getByText("1")).toBeInTheDocument();
+});
+
+test("the A-Z toggle saves the setting and reorders", async () => {
+  act(() => useAppStore.setState({ folders: [mkFolder("fam", "1")], roots: ["C:/base"] }));
+  render(<Sidebar />);
+  fireEvent.click(screen.getByRole("checkbox", { name: /sort target folders alphabetically/i }));
+  await waitFor(() => expect(commands.reorderFolders).toHaveBeenCalled());
+  expect(useAppStore.getState().settings.sortFoldersAlphabetically).toBe(true);
+  expect(commands.saveSettings).toHaveBeenCalled();
+});
+
+test("the header names every scanned root once there is more than one", () => {
+  act(() => useAppStore.setState({ roots: ["D:/foto", "E:/dcim"] }));
+  render(<Sidebar />);
+  expect(screen.getByText(/\+1 more/)).toBeInTheDocument();
+  expect(screen.getByTitle(/E:\/dcim/)).toBeInTheDocument();
+});

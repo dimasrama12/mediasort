@@ -10,7 +10,8 @@ vi.mock("./commands", () => ({
 }));
 vi.mock("./useThumbnail", () => ({ clearThumbnailMemo: vi.fn() }));
 
-import { abortScan, openProject, scanFlow } from "./appActions";
+import { abortScan, addScanFlow, openProject, scanFlow } from "./appActions";
+import * as commands from "./commands";
 import {
   adoptSession,
   cancelScan,
@@ -22,11 +23,12 @@ import {
 import { clearThumbnailMemo } from "./useThumbnail";
 import { useAppStore } from "../store/useAppStore";
 
-const folder = (id: string, shortcut: number) => ({
+const folder = (id: string, key: string) => ({
   id,
   name: id,
   path: `D:/Screenshots/${id}`,
-  shortcut,
+  key,
+  keyCustom: false,
   fileCount: 12,
 });
 
@@ -38,9 +40,9 @@ beforeEach(() => {
 /* --------------------------------------------------------------------------------------------
  * Scanning a new root starts a new sorting session (§2).
  *
- * The target folders belong to the library they were made for: their 1–9 shortcuts point at
- * directories under the *previous* root, so carrying them into a new scan means the digit keys
- * silently file photos into somebody else's folders. Clearing the store was only half of it —
+ * The target folders belong to the library they were made for: their keys point at directories
+ * under the *previous* root, so carrying them into a new scan means those keys silently file
+ * photos into somebody else's folders. Clearing the store was only half of it —
  * the backend registry kept holding them, so the very next Ctrl+R (which re-lists the folders
  * from the backend) brought every one of them straight back.
  * ------------------------------------------------------------------------------------------ */
@@ -48,7 +50,7 @@ beforeEach(() => {
 test("scanning a new root clears the previous session's target folders on both sides", async () => {
   useAppStore.setState({
     roots: ["D:/Screenshots"],
-    folders: [folder("Keep", 1), folder("Toss", 2)],
+    folders: [folder("Keep", "1"), folder("Toss", "2")],
     files: [],
   });
 
@@ -74,7 +76,7 @@ test("the backend is cleared before the scan starts, not after", async () => {
 
 test("cancelling the folder picker leaves the session completely alone", async () => {
   vi.mocked(pickFolders).mockResolvedValueOnce(null);
-  useAppStore.setState({ roots: ["D:/Screenshots"], folders: [folder("Keep", 1)] });
+  useAppStore.setState({ roots: ["D:/Screenshots"], folders: [folder("Keep", "1")] });
 
   await scanFlow();
 
@@ -114,7 +116,7 @@ test("abortScan asks the backend to stop, and never throws at the caller", async
 
 test("re-scanning the same root keeps the target folders, so the backend can exclude them", async () => {
   vi.mocked(pickFolders).mockResolvedValueOnce(["D:/Screenshots"]);
-  const keep = [folder("Keep", 1), folder("Toss", 2)];
+  const keep = [folder("Keep", "1"), folder("Toss", "2")];
   useAppStore.setState({ roots: ["D:/Screenshots"], folders: keep });
 
   await scanFlow();
@@ -126,7 +128,7 @@ test("re-scanning the same root keeps the target folders, so the backend can exc
 
 test("re-picking the same roots in a different order is still the same library", async () => {
   vi.mocked(pickFolders).mockResolvedValueOnce(["D:/B", "D:/A"]);
-  const keep = [folder("Keep", 1)];
+  const keep = [folder("Keep", "1")];
   useAppStore.setState({ roots: ["D:/A", "D:/B"], folders: keep });
 
   await scanFlow();
@@ -137,7 +139,7 @@ test("re-picking the same roots in a different order is still the same library",
 
 test("scanning a superset of the previous roots is a new session", async () => {
   vi.mocked(pickFolders).mockResolvedValueOnce(["D:/A", "D:/B"]);
-  useAppStore.setState({ roots: ["D:/A"], folders: [folder("Keep", 1)] });
+  useAppStore.setState({ roots: ["D:/A"], folders: [folder("Keep", "1")] });
 
   await scanFlow();
 
@@ -157,9 +159,9 @@ test("the very first scan of a session has nothing to keep and nothing to clear"
  *
  * `loadProject().then(loadProjectData)` filled the store and told the backend nothing, so the
  * target-folder registry stayed empty and the access scope had never heard of the roots. The
- * first digit press was refused as "outside this session's folders", and the `syncFolders` that
- * follows every move re-listed the empty registry over the sidebar — the shortcuts were gone for
- * the rest of the run.
+ * first folder key was refused as "outside this session's folders", and the `syncFolders` that
+ * follows every move re-listed the empty registry over the sidebar — the keys were gone for the
+ * rest of the run.
  * ------------------------------------------------------------------------------------------ */
 
 const project = {
@@ -168,18 +170,18 @@ const project = {
   savedAt: 0,
   roots: ["D:/random"],
   files: [],
-  folders: [folder("Two", 2), folder("One", 1)],
+  folders: [folder("Two", "2"), folder("One", "1")],
   groups: [],
 };
 
 test("loading a project re-registers its roots and target folders with the backend", async () => {
   vi.mocked(loadProject).mockResolvedValueOnce(project as never);
-  const live = [folder("One", 1), folder("Two", 2)];
+  const live = [folder("One", "1"), folder("Two", "2")];
   vi.mocked(adoptSession).mockResolvedValueOnce(live as never);
 
   await openProject("p1");
 
-  // Folders go over in shortcut order, so the backend hands back the same 1..N they were saved with.
+  // Folders go over in key order, so the backend hands back the same keys they were saved with.
   expect(adoptSession).toHaveBeenCalledWith(["D:/random"], [
     "D:/Screenshots/One",
     "D:/Screenshots/Two",
@@ -202,4 +204,88 @@ test("a project with no target folders still adopts its roots", async () => {
   vi.mocked(adoptSession).mockResolvedValueOnce([] as never);
   await openProject("p1");
   expect(adoptSession).toHaveBeenCalledWith(["D:/random"], []);
+});
+
+/* --------------------------------------------------------------------------------------------
+ * Adding a library without ending the session (§2).
+ * ------------------------------------------------------------------------------------------ */
+const mk = (id: string) => ({
+  id,
+  path: `D:/foto/${id}.jpg`,
+  name: `${id}.jpg`,
+  extension: "jpg",
+  size: 1,
+  modifiedAt: 0,
+  dateTaken: null,
+  fileType: "image" as const,
+  groupId: null,
+});
+
+test("addScanFlow appends the root and keeps the session", async () => {
+  const st = useAppStore.getState();
+  st.startScan();
+  st.setRoots(["D:/foto"]);
+  st.addFiles([mk("a")]);
+  st.setFolders([folder("fam", "1")]);
+  st.finishScan(1);
+  vi.mocked(commands.pickFolders).mockResolvedValueOnce(["E:/dcim"]);
+
+  await addScanFlow();
+
+  const s = useAppStore.getState();
+  expect(s.roots).toEqual(["D:/foto", "E:/dcim"]);
+  expect(s.files).toHaveLength(1);
+  expect(s.folders).toHaveLength(1);
+  expect(clearTargetFolders).not.toHaveBeenCalled();
+  expect(scanFolders).toHaveBeenCalledWith(["E:/dcim"]);
+});
+
+test("addScanFlow scans only the roots that are new", async () => {
+  const st = useAppStore.getState();
+  st.setRoots(["D:/foto"]);
+  vi.mocked(commands.pickFolders).mockResolvedValueOnce(["D:\\FOTO", "E:/dcim"]);
+
+  await addScanFlow();
+
+  // D:\FOTO is D:/foto in different clothes — same folder, already scanned.
+  expect(scanFolders).toHaveBeenCalledWith(["E:/dcim"]);
+  expect(useAppStore.getState().roots).toEqual(["D:/foto", "E:/dcim"]);
+});
+
+test("addScanFlow says so and scans nothing when every pick is already scanned", async () => {
+  const st = useAppStore.getState();
+  st.setRoots(["D:/foto"]);
+  vi.mocked(commands.pickFolders).mockResolvedValueOnce(["D:/foto"]);
+
+  await addScanFlow();
+
+  expect(scanFolders).not.toHaveBeenCalled();
+  expect(useAppStore.getState().notice).toMatch(/already/i);
+  expect(useAppStore.getState().scanning).toBe(false);
+});
+
+test("addScanFlow does nothing when the picker is cancelled", async () => {
+  vi.mocked(commands.pickFolders).mockResolvedValueOnce(null);
+  await addScanFlow();
+  expect(scanFolders).not.toHaveBeenCalled();
+  expect(useAppStore.getState().scanning).toBe(false);
+});
+
+test("openProject adopts folders in key order, and a legacy project in saved order", async () => {
+  vi.mocked(commands.loadProject).mockResolvedValueOnce({
+    id: "p1",
+    name: "P1",
+    savedAt: 0,
+    roots: ["D:/foto"],
+    files: [],
+    groups: [],
+    folders: [
+      { id: "c", name: "C", path: "D:/foto/c", key: "F", keyCustom: true, fileCount: 0 },
+      { id: "a", name: "A", path: "D:/foto/a", key: "1", keyCustom: false, fileCount: 0 },
+      { id: "b", name: "B", path: "D:/foto/b", key: "2", keyCustom: false, fileCount: 0 },
+    ],
+  });
+  await openProject("p1");
+  // "1", "2" are pool keys and sort first; the hand-set "F" is outside the pool and goes last.
+  expect(adoptSession).toHaveBeenCalledWith(["D:/foto"], ["D:/foto/a", "D:/foto/b", "D:/foto/c"]);
 });

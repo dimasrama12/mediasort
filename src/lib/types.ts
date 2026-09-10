@@ -27,7 +27,10 @@ export interface FolderInfo {
   id: string;
   name: string;
   path: string;
-  shortcut: number; // 1..9
+  /** The single key that files into this folder: "1", "F", ";", "Shift+:". "" = no keystroke. */
+  key: string;
+  /** True when the user picked this key; the A-Z re-key leaves these alone. */
+  keyCustom: boolean;
   fileCount: number;
 }
 
@@ -107,6 +110,8 @@ export interface AppSettings {
    *  the user has been filing *into*, and reading them back re-fills the library with photos
    *  that have already been sorted. */
   scanSubfolders: boolean;
+  /** Show target folders sorted by name instead of in the order they were added (§4). */
+  sortFoldersAlphabetically: boolean;
   /** Action id → combos. Merged with defaults on load (see keybindings.ts). */
   keybindings: Keybindings;
 }
@@ -124,5 +129,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   hashAlgorithm: "dhash",
   scratchPath: null,
   scanSubfolders: false,
+  sortFoldersAlphabetically: false,
   keybindings: DEFAULT_KEYBINDINGS,
 };

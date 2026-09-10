@@ -2,7 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppStore } from "../store/useAppStore";
 import { useClickOutside } from "../lib/useClickOutside";
 import { useFocusTrap } from "../lib/useFocusTrap";
-import { saveSettings, resetSettings, emptyScratch, pickFolder } from "../lib/commands";
+import {
+  saveSettings,
+  resetSettings,
+  emptyScratch,
+  pickFolder,
+  setReservedKeys,
+} from "../lib/commands";
 // Bundled, not read from disk. The portrait used to be loaded from a hard-coded `D:\foto\...`
 // path on one developer's machine, which meant the feature simply did not exist on any other
 // computer the installer ran on. Importing it makes Vite emit it into `dist/assets`, so it ships
@@ -16,6 +22,7 @@ import {
   bindingsWithDefaults,
   eventToCombo,
   formatCombo,
+  reservedKeys,
 } from "../lib/keybindings";
 
 const THEMES: Theme[] = ["light", "dark", "system"];
@@ -59,6 +66,8 @@ export function SettingsPanel() {
 
   const unlocked = SPECIAL_PASSWORDS.includes(pw.trim());
   const bindings = bindingsWithDefaults(settings.keybindings);
+  /** Why the last capture was refused (a folder already holds that key), or null. */
+  const [keyError, setKeyError] = useState<string | null>(null);
 
   // Patch one field (or several), then persist the whole object (fire-and-forget).
   const patch = (p: Partial<AppSettings>) => {
@@ -95,6 +104,16 @@ export function SettingsPanel() {
       const combo = eventToCombo(e);
       if (!combo) return; // bare modifier — keep waiting
       const st = useAppStore.getState();
+      // A target folder's key is as real a binding as an action's. Stealing one would leave that
+      // folder silently unreachable from the keyboard, so refuse and name it — the mirror image
+      // of the check the sidebar runs when a folder tries to take an action's key.
+      const clash = st.folders.find((f) => f.key !== "" && f.key === combo);
+      if (clash) {
+        setKeyError(`${formatCombo(combo)} is already the key for "${clash.name}".`);
+        setCapturing(null);
+        return;
+      }
+      setKeyError(null);
       const cur = bindingsWithDefaults(st.settings.keybindings);
       const next: Record<string, string[]> = {};
       for (const a of ACTIONS) {
@@ -103,6 +122,7 @@ export function SettingsPanel() {
       const nextSettings = { ...st.settings, keybindings: next };
       st.setSettings(nextSettings);
       void saveSettings(nextSettings).catch(() => {});
+      void setReservedKeys(reservedKeys(next)).catch(() => {});
       setCapturing(null);
     };
     window.addEventListener("keydown", onKey, true);
@@ -123,11 +143,24 @@ export function SettingsPanel() {
 
   const onReset = () =>
     void resetSettings()
-      .then((s) => setSettings({ ...s, keybindings: bindingsWithDefaults(s.keybindings) }))
+      .then((s) => {
+        const merged = bindingsWithDefaults(s.keybindings);
+        setSettings({ ...s, keybindings: merged });
+        void setReservedKeys(reservedKeys(merged)).catch(() => {});
+      })
       .catch(() => {});
 
-  const resetOneShortcut = (id: ActionId) =>
-    patch({ keybindings: { ...bindings, [id]: [...DEFAULT_KEYBINDINGS[id]] } });
+  const resetOneShortcut = (id: ActionId) => {
+    const next = { ...bindings, [id]: [...DEFAULT_KEYBINDINGS[id]] };
+    patch({ keybindings: next });
+    void setReservedKeys(reservedKeys(next)).catch(() => {});
+  };
+
+  const resetAllShortcuts = () => {
+    const next = { ...DEFAULT_KEYBINDINGS };
+    patch({ keybindings: next });
+    void setReservedKeys(reservedKeys(next)).catch(() => {});
+  };
 
   const chooseScratch = async () => {
     const p = await pickFolder();
@@ -256,6 +289,7 @@ export function SettingsPanel() {
               <p className="text-[11px] text-[var(--muted)] mb-1">
                 Click <em>Edit</em>, then press the key combination. Esc cancels; the combo is moved off any other action it was on.
               </p>
+              {keyError && <p className="text-red-400 text-[11px] mb-1">{keyError}</p>}
               {ACTIONS.map((a) => (
                 <div key={a.id} className="flex items-center gap-2 py-1 text-sm">
                   <span className="flex-1 min-w-0 truncate text-[var(--text)]">{a.label}</span>
@@ -271,7 +305,7 @@ export function SettingsPanel() {
                 </div>
               ))}
               <div className="pt-2">
-                <button type="button" onClick={() => patch({ keybindings: { ...DEFAULT_KEYBINDINGS } })} className="px-3 py-1.5 rounded bg-[var(--elevated)] hover:bg-[var(--elevated-hover)] text-sm text-[var(--muted)]">
+                <button type="button" onClick={resetAllShortcuts} className="px-3 py-1.5 rounded bg-[var(--elevated)] hover:bg-[var(--elevated-hover)] text-sm text-[var(--muted)]">
                   Reset all shortcuts
                 </button>
               </div>
@@ -283,10 +317,10 @@ export function SettingsPanel() {
               <div>
                 <h3 className="font-medium mb-1">Getting started</h3>
                 <ol className="list-decimal list-inside text-[13px] text-[var(--muted)] space-y-0.5">
-                  <li>Scan one or more parent folders (Scan folder / Ctrl+O).</li>
-                  <li>Add target folders in the sidebar (New folder / Ctrl+N, or “Add existing folder…”). Each gets a number 1–9 for this session.</li>
+                  <li>Scan one or more parent folders (Scan folder / Ctrl+O). Add another library later with the blue + or Ctrl+Shift+O — the one you already have stays open.</li>
+                  <li>Add target folders in the sidebar (New folder / Ctrl+N, or “Add existing folders…”). Each gets a key for this session — click the key chip to change it to any letter or symbol. There is no limit on how many.</li>
                   <li>Browse in Grid ([) or List (]) view; Sort and Group from the toolbar.</li>
-                  <li>Press a folder’s number to move the focused file (or the whole selection) into it.</li>
+                  <li>Press a folder’s key to move the focused file (or the whole selection) into it.</li>
                   <li>Delete/B sends files to the in-app Trash (restorable); Ctrl+Z/Ctrl+Y undo/redo.</li>
                   <li>
                     Open the Trash from the button at the foot of the sidebar (or press T), pick
@@ -306,9 +340,10 @@ export function SettingsPanel() {
                   <li>Drag a selection onto a sidebar folder to move it there.</li>
                   <li>Enter opens the focused file in the preview; Esc closes it.</li>
                   <li>Right-click a tile for Move to Trash, Refresh and EXIF Data.</li>
+                  <li>With several libraries open, Group asks which ones to cover.</li>
                   <li>
                     While a target folder is open, its files can be filed straight into another
-                    one — drag them onto it, or press its 1–9 key.
+                    one — drag them onto it, or press its key.
                   </li>
                 </ul>
               </div>

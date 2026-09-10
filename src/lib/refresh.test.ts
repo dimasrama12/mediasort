@@ -2,7 +2,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 
 vi.mock("./commands", () => ({
   listTargetFolders: vi.fn(async () => [
-    { id: "fam", name: "fam", path: "C:/base/fam", shortcut: 1, fileCount: 7 },
+    { id: "fam", name: "fam", path: "C:/base/fam", key: "1", keyCustom: false, fileCount: 7 },
   ]),
   listFolderFiles: vi.fn(async () => [
     {
@@ -47,7 +47,7 @@ const mk = (id: string): FileInfo => ({
   groupId: null,
 });
 
-const fam = { id: "fam", name: "fam", path: "C:/base/fam", shortcut: 1, fileCount: 0 };
+const fam = { id: "fam", name: "fam", path: "C:/base/fam", key: "1", keyCustom: false, fileCount: 0 };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -123,7 +123,7 @@ test("a folder that has since been deleted doesn't sink the whole refresh", asyn
 test("a refresh replaces the folder counts with what the backend read off disk", async () => {
   useAppStore.setState({
     // A stale, optimistically-maintained count from before the refresh.
-    folders: [{ id: "fam", name: "fam", path: "C:/base/fam", shortcut: 1, fileCount: 0 }],
+    folders: [{ id: "fam", name: "fam", path: "C:/base/fam", key: "1", keyCustom: false, fileCount: 0 }],
     browseFolder: null,
     trashOpen: false,
   });
@@ -132,7 +132,7 @@ test("a refresh replaces the folder counts with what the backend read off disk",
 
   expect(listTargetFolders).toHaveBeenCalled();
   expect(useAppStore.getState().folders).toEqual([
-    { id: "fam", name: "fam", path: "C:/base/fam", shortcut: 1, fileCount: 7 },
+    { id: "fam", name: "fam", path: "C:/base/fam", key: "1", keyCustom: false, fileCount: 7 },
   ]);
 });
 

@@ -3,7 +3,9 @@ import { groupVisual, groupTemporal, cancelGrouping } from "../lib/commands";
 import { groupByDate, groupByType } from "../lib/clientGroup";
 import { scanFlow } from "../lib/appActions";
 import { useAppStore } from "../store/useAppStore";
-import type { DateGroupSort } from "../store/useAppStore";
+import type { DateGroupSort, GroupMode } from "../store/useAppStore";
+import { filesInScope } from "../lib/groupScope";
+import type { FileInfo } from "../lib/types";
 import { GROUPING_CANCELLED } from "../lib/commands";
 import { abortScan } from "../lib/appActions";
 import { onGroupProgress } from "../lib/events";
@@ -205,15 +207,34 @@ export function Toolbar() {
     if (!bucketKind) setBucketsOpen(false);
   }, [bucketKind]);
 
-  async function runGroup(mode: "visual" | "temporal") {
+  /** Ask which libraries first when more than one is open (§5). With one there is nothing to
+   *  choose, so it runs straight through, exactly as it always did. */
+  function beginGroup(mode: Exclude<GroupMode, "none">) {
     if (grouping || scanning || files.length === 0) return;
+    if (useAppStore.getState().roots.length > 1) {
+      useAppStore.getState().requestGroupScope(mode);
+      return;
+    }
+    void runScoped(mode, files).catch(() => {});
+  }
+
+  /** The one grouping code path: the toolbar's direct call and the pop-up's OK both land here. */
+  async function runScoped(mode: Exclude<GroupMode, "none">, subject: FileInfo[]) {
+    if (subject.length === 0) return;
+    if (mode === "date" || mode === "type") {
+      applyGroups(
+        mode === "date" ? groupByDate(subject, dateGroupSort) : groupByType(subject),
+        mode,
+      );
+      return;
+    }
     setGrouping(true);
-    setProgress({ done: 0, total: files.length });
+    setProgress({ done: 0, total: subject.length });
     try {
       const result =
         mode === "visual"
-          ? await groupVisual(files, settings.similarityThreshold, settings.hashAlgorithm)
-          : await groupTemporal(files, settings.timeWindowHours);
+          ? await groupVisual(subject, settings.similarityThreshold, settings.hashAlgorithm)
+          : await groupTemporal(subject, settings.timeWindowHours);
       applyGroups(result, mode);
     } catch (e) {
       // Esc during a run rejects with `cancelled`. That is the user's decision, not a failure:
@@ -225,16 +246,16 @@ export function Toolbar() {
     }
   }
 
-  function runClientGroup(mode: "date" | "type", order: DateGroupSort = dateGroupSort) {
-    if (scanning || files.length === 0) return;
-    applyGroups(mode === "date" ? groupByDate(files, order) : groupByType(files), mode);
-  }
-
-  /** Flip the dated groups between oldest-first and biggest-first, rebuilding them in place (§4). */
+  /** Flip the dated groups between oldest-first and biggest-first, rebuilding them in place (§4).
+   *  Rebuilt over whatever the last run covered, so re-ordering does not silently widen a scoped
+   *  grouping back out to every library. */
   function chooseDateOrder(order: DateGroupSort) {
     if (order === dateGroupSort) return;
     setDateGroupSort(order);
-    if (groupMode === "date") runClientGroup("date", order);
+    if (groupMode !== "date") return;
+    const st = useAppStore.getState();
+    const subject = st.roots.length > 1 ? filesInScope(files, st.groupRoots) : files;
+    applyGroups(groupByDate(subject.length > 0 ? subject : files, order), "date");
   }
 
   const canGroup = !grouping && !scanning && files.length > 0;
@@ -379,11 +400,7 @@ export function Toolbar() {
               key={g.id}
               active={groupMode === g.id}
               disabled={!canGroup}
-              onClick={() =>
-                g.id === "visual" || g.id === "temporal"
-                  ? void runGroup(g.id)
-                  : runClientGroup(g.id)
-              }
+              onClick={() => beginGroup(g.id)}
               title={
                 g.id === "visual"
                   ? "Group visually similar photos"
@@ -500,4 +517,36 @@ export function Toolbar() {
       )}
     </header>
   );
+}
+
+/** Run a grouping over an explicit set of roots — the pop-up's OK path (§5). Kept as a module
+ *  function taking the store as its only input so `App` can pass it straight to the panel. */
+export async function runGroupOverRoots(
+  mode: Exclude<GroupMode, "none">,
+  roots: string[],
+): Promise<void> {
+  const st = useAppStore.getState();
+  const subject = filesInScope(st.files, roots);
+  if (subject.length === 0) return;
+  if (mode === "date" || mode === "type") {
+    st.applyGroups(
+      mode === "date" ? groupByDate(subject, st.dateGroupSort) : groupByType(subject),
+      mode,
+    );
+    return;
+  }
+  st.setGrouping(true);
+  st.setGroupProgress({ done: 0, total: subject.length });
+  try {
+    const result =
+      mode === "visual"
+        ? await groupVisual(subject, st.settings.similarityThreshold, st.settings.hashAlgorithm)
+        : await groupTemporal(subject, st.settings.timeWindowHours);
+    useAppStore.getState().applyGroups(result, mode);
+  } catch (e) {
+    if (!String(e).includes(GROUPING_CANCELLED)) throw e;
+  } finally {
+    useAppStore.getState().setGrouping(false);
+    useAppStore.getState().setGroupProgress(null);
+  }
 }

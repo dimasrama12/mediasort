@@ -84,7 +84,7 @@ test("Batch rename opens the pattern renamer and closes the menu", () => {
 
 test("both renames are disabled while browsing a target folder (read-only)", () => {
   useAppStore.setState({
-    browseFolder: { id: "fam", name: "fam", path: "C:/base/fam", shortcut: 1, fileCount: 1 },
+    browseFolder: { id: "fam", name: "fam", path: "C:/base/fam", key: "1", keyCustom: false, fileCount: 1 },
     browseFiles: [mk("b")],
     selectedIds: ["b"],
   });
@@ -121,7 +121,7 @@ test("Move to Trash acts on the whole selection when the click landed inside it"
 
 test("Move to Trash is disabled while browsing a target folder (read-only)", () => {
   useAppStore.setState({
-    browseFolder: { id: "fam", name: "fam", path: "C:/base/fam", shortcut: 1, fileCount: 1 },
+    browseFolder: { id: "fam", name: "fam", path: "C:/base/fam", key: "1", keyCustom: false, fileCount: 1 },
     browseFiles: [mk("b")],
   });
   render(<ContextMenu />);

@@ -7,8 +7,14 @@ import {
   addExistingFolders,
   pickFolders,
   listFolderFiles,
+  listTargetFolders,
+  reorderFolders,
+  saveSettings,
+  setFolderKey,
 } from "../lib/commands";
 import { moveToFolder } from "../lib/fileActions";
+import { bindingsWithDefaults, eventToCombo, formatCombo } from "../lib/keybindings";
+import { keyConflict } from "../lib/folderKeys";
 import { groupColor } from "../lib/groupColors";
 
 export function Sidebar() {
@@ -26,28 +32,87 @@ export function Sidebar() {
   const collapsed = useAppStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const newFolderRequested = useAppStore((s) => s.newFolderRequested);
+  const settings = useAppStore((s) => s.settings);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+  /** The folder whose key chip is armed and waiting for a keypress, or null. */
+  const [capturingKey, setCapturingKey] = useState<string | null>(null);
   const base = roots[0] ?? "";
-  const full = folders.length >= 9;
   const dragging = draggingIds.length > 0;
 
-  // Ctrl+N (via the store nonce) opens the inline "new folder" input — when there's room and a
-  // base. Keyed on the nonce only (base/full read fresh) so a later scan can't spuriously reopen it.
+  // Ctrl+N (via the store nonce) opens the inline "new folder" input — when there is a base to
+  // create under. Keyed on the nonce only (base read fresh) so a later scan can't reopen it.
   useEffect(() => {
     if (newFolderRequested === 0) return;
-    const st = useAppStore.getState();
-    if ((st.roots[0] ?? "") && st.folders.length < 9) setAdding(true);
+    if (useAppStore.getState().roots[0] ?? "") setAdding(true);
   }, [newFolderRequested]);
+
+  // Capture the next keypress and give it to the folder being edited. Capture phase, so it beats
+  // the grid's own handler — otherwise pressing "F" to *assign* F would file the selection into
+  // whichever folder already had it.
+  useEffect(() => {
+    if (!capturingKey) return;
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (e.key === "Escape") {
+        setCapturingKey(null);
+        return;
+      }
+      const combo = eventToCombo(e);
+      if (!combo) return; // bare modifier — keep waiting
+      const st = useAppStore.getState();
+      const conflict = keyConflict(
+        combo,
+        bindingsWithDefaults(st.settings.keybindings),
+        st.folders,
+        capturingKey,
+      );
+      if (conflict) {
+        setError(conflict);
+        setCapturingKey(null);
+        return;
+      }
+      setCapturingKey(null);
+      setError(null);
+      void setFolderKey(capturingKey, combo)
+        .then(setFolders)
+        .catch((err) => setError(String(err)));
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [capturingKey, setFolders]);
+
+  /** Flip the A→Z ordering. The setting is saved *before* the reorder, because the backend reads
+   *  the flag straight from settings.json — the save is how the two agree on what "on" means. */
+  async function onToggleSort(on: boolean) {
+    const st = useAppStore.getState();
+    const next = { ...st.settings, sortFoldersAlphabetically: on };
+    st.setSettings(next);
+    try {
+      await saveSettings(next);
+      setFolders(await reorderFolders());
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
 
   async function onCreate() {
     const trimmed = name.trim();
     if (!trimmed || !base) return;
     try {
-      upsertFolder(await createFolder(base, trimmed));
+      const created = await createFolder(base, trimmed);
+      // With A→Z on the backend re-keys the *whole* list to keep 1 at the top, so taking only the
+      // new folder back would leave every other chip showing a key it no longer has.
+      if (useAppStore.getState().settings.sortFoldersAlphabetically) {
+        setFolders(await listTargetFolders());
+      } else {
+        upsertFolder(created);
+      }
       setName("");
       setAdding(false);
       setError(null);
@@ -58,16 +123,11 @@ export function Sidebar() {
 
   /** Register one or more existing folders as targets in a single pick (§2 multi-select). */
   async function onAddExisting() {
-    if (full) return;
     try {
       const paths = await pickFolders();
       if (!paths || paths.length === 0) return;
-      const free = 9 - folders.length;
       setFolders(await addExistingFolders(paths));
-      setError(
-        paths.length > free
-          ? `Only ${free} of ${paths.length} folders fit — all 9 shortcut slots are now used.`: null,
-      );
+      setError(null);
     } catch (e) {
       setError(String(e));
     }
@@ -142,7 +202,7 @@ export function Sidebar() {
           »
         </button>
         <div className="my-1 h-px w-6 bg-[var(--border)]" />
-        {/* The 1–9 chips stay reachable as drop targets even with the sidebar collapsed. */}
+        {/* The key chips stay reachable as drop targets even with the sidebar collapsed. */}
         {folders.map((f) => (
           <button
             key={f.id}
@@ -169,7 +229,7 @@ export function Sidebar() {
                   : "bg-[var(--elevated)] text-[var(--muted)] hover:bg-[var(--elevated-hover)] hover:text-[var(--text)]"
             }`}
           >
-            {f.shortcut}
+            {f.key || "—"}
           </button>
         ))}
       </aside>
@@ -179,8 +239,14 @@ export function Sidebar() {
   return (
     <aside className="w-56 shrink-0 border-r border-[var(--border)] bg-[var(--panel)] flex flex-col overflow-auto">
       <div className="flex items-center gap-1 p-2">
-        <div className="flex-1 min-w-0 text-[11px] text-[var(--muted)] truncate" title={base}>
+        <div
+          className="flex-1 min-w-0 text-[11px] text-[var(--muted)] truncate"
+          title={roots.length > 0 ? roots.join("\n") : undefined}
+        >
           {base || "No folder scanned"}
+          {roots.length > 1 && (
+            <span className="ml-1 text-[var(--accent-hover)]">+{roots.length - 1} more</span>
+          )}
         </div>
         <button
           type="button"
@@ -192,6 +258,18 @@ export function Sidebar() {
           «
         </button>
       </div>
+
+      {folders.length > 0 && (
+        <label className="flex items-center gap-2 px-2 pb-1 text-[11px] text-[var(--muted)]">
+          <input
+            type="checkbox"
+            checked={settings.sortFoldersAlphabetically}
+            onChange={(e) => void onToggleSort(e.target.checked)}
+            aria-label="Sort target folders alphabetically"
+          />
+          A→Z
+        </label>
+      )}
 
       <ul className="flex-1">
         {folders.map((f, i) => {
@@ -214,8 +292,8 @@ export function Sidebar() {
               }}
               style={{ animationDelay: `${Math.min(i, 8) * 22}ms` }}
               // Armed = the dragged files will land here. One solid fill of the accent, no
-              // outline and no pulse: at nine rows a ring of pulsing dashed boxes was the
-              // loudest thing on screen during the app's most common gesture.
+              // outline and no pulse: at a screenful of rows a ring of pulsing dashed boxes was
+              // the loudest thing on screen during the app's most common gesture.
               className={`row-rail mx-1 flex items-center gap-2 rounded-md px-2 py-1.5 pl-2.5 text-sm ${
                 armed
                   ? "bg-[var(--accent)] text-white"
@@ -224,13 +302,17 @@ export function Sidebar() {
                     : "text-[var(--text)] hover:bg-[var(--elevated)]"
               }`}
             >
-              <kbd
-                className={`grid h-5 w-5 shrink-0 place-items-center rounded text-[11px] tabular-nums transition-colors ${
+              <button
+                type="button"
+                onClick={() => setCapturingKey(f.id)}
+                aria-label={`Change the key for ${f.name}`}
+                title={`Key: ${f.key ? formatCombo(f.key) : "none"} — click to change`}
+                className={`press grid h-5 min-w-5 shrink-0 place-items-center rounded px-1 text-[11px] tabular-nums transition-colors ${
                   armed ? "bg-white/25 text-white" : "bg-[var(--elevated)] text-[var(--muted)]"
                 }`}
               >
-                {f.shortcut}
-              </kbd>
+                {capturingKey === f.id ? "…" : f.key ? formatCombo(f.key) : "—"}
+              </button>
               {editingId === f.id ? (
                 <input
                   autoFocus
@@ -309,15 +391,14 @@ export function Sidebar() {
         <div className="m-2 flex flex-col gap-1">
           <button
             onClick={() => setAdding(true)}
-            disabled={full || !base}
+            disabled={!base}
             title="New target folder (Ctrl+N)"
             className="press px-2 py-1 rounded-md bg-[var(--elevated)] hover:bg-[var(--elevated-hover)] disabled:opacity-40 text-sm"
           >
-            {full ? "All 9 keys used" : "New folder"}
+            New folder
           </button>
           <button
             onClick={onAddExisting}
-            disabled={full}
             title="Register one or more existing folders as targets"
             className="press px-2 py-1 rounded-md bg-[var(--elevated)] hover:bg-[var(--elevated-hover)] disabled:opacity-40 text-xs text-[var(--muted)]"
           >

@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Toolbar } from "./components/Toolbar";
+import { Toolbar, runGroupOverRoots } from "./components/Toolbar";
 import { Sidebar } from "./components/Sidebar";
 import { FileGrid } from "./components/FileGrid";
 import { Preview } from "./components/Preview";
@@ -10,12 +10,13 @@ import { RenameFilePanel } from "./components/RenameFilePanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { ProjectsPanel } from "./components/ProjectsPanel";
 import { ConfirmDelete } from "./components/ConfirmDelete";
+import { GroupScopePanel } from "./components/GroupScopePanel";
 import { ContextMenu } from "./components/ContextMenu";
 import { ExifPanel } from "./components/ExifPanel";
 import { onScanFile, onScanDone } from "./lib/events";
-import { getSettings } from "./lib/commands";
+import { getSettings, setReservedKeys } from "./lib/commands";
 import { applyTheme } from "./lib/theme";
-import { bindingsWithDefaults } from "./lib/keybindings";
+import { bindingsWithDefaults, reservedKeys } from "./lib/keybindings";
 import { installContextMenu, installGlobalKeys } from "./lib/globalHandlers";
 import { syncFolders } from "./lib/fileActions";
 import { useAppStore } from "./store/useAppStore";
@@ -42,6 +43,9 @@ function App() {
       .then((s) => {
         const merged = { ...s, keybindings: bindingsWithDefaults(s.keybindings) };
         setSettings(merged);
+        // The backend assigns folder keys and must not hand out one of ours. Pushed here rather
+        // than at first use: a folder can be created before Settings is ever opened.
+        void setReservedKeys(reservedKeys(merged.keybindings)).catch(() => {});
         const st = useAppStore.getState();
         st.setViewMode(merged.defaultView === "list" ? "list" : "grid");
         st.setSidebarCollapsed(!!merged.sidebarCollapsed);
@@ -49,14 +53,14 @@ function App() {
       .catch(() => {});
   }, [setSettings]);
 
-  // Hydrate the 1-9 target folders from the backend registry on mount, before anything else can
+  // Hydrate the target folders from the backend registry on mount, before anything else can
   // need them.
   //
-  // The digit shortcuts resolve against `folders`, and nothing ever put anything in it at
-  // startup: the registry lives in the backend, and the UI only ever re-read it as a *side
-  // effect* of something else (a drop onto the sidebar, a rename, a Ctrl+R). Until one of those
-  // happened, pressing 1 found no folder for that shortcut and returned without moving anything
-  // and without saying anything — the shortcut looked dead on the first try of the session.
+  // The folder keys resolve against `folders`, and nothing ever put anything in it at startup:
+  // the registry lives in the backend, and the UI only ever re-read it as a *side effect* of
+  // something else (a drop onto the sidebar, a rename, a Ctrl+R). Until one of those happened,
+  // pressing a folder's key found no folder for it and returned without moving anything and
+  // without saying anything — the key looked dead on the first try of the session.
   //
   // Deliberately fire-and-forget and deliberately unguarded by any other state: this must not
   // wait on the settings load, the theme, or a scan.
@@ -95,6 +99,9 @@ function App() {
       <SettingsPanel />
       <ProjectsPanel />
       <ConfirmDelete />
+      <GroupScopePanel
+        onConfirm={(mode, roots) => void runGroupOverRoots(mode, roots).catch(() => {})}
+      />
       <ExifPanel />
       <ContextMenu />
     </main>

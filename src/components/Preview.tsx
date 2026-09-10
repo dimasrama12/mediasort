@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppStore } from "../store/useAppStore";
 import { previewKind, previewSrc } from "../lib/preview";
-import { bindingsWithDefaults, matchAction } from "../lib/keybindings";
+import { bindingsWithDefaults, eventToCombo, formatCombo, matchAction } from "../lib/keybindings";
 import { decodePreview, openInDefaultApp, rotateImage } from "../lib/commands";
 import { moveToFolder } from "../lib/fileActions";
 import { invalidateThumbnail } from "../lib/useThumbnail";
@@ -149,32 +149,36 @@ export function Preview() {
     [file, busy, files],
   );
 
-  // Global keys while open: Esc closes, arrows / j / k navigate, the 1–9 digits file the photo
-  // into a target folder, and the (rebindable) preview-scope actions rotate and zoom. Bindings
-  // are read live so a rebind takes effect without re-subscribing.
+  // Global keys while open: Esc closes, arrows / j / k navigate, the (rebindable) preview-scope
+  // actions rotate and zoom, and a target folder's key files the photo. Bindings are read live so
+  // a rebind takes effect without re-subscribing.
   useEffect(() => {
     if (previewId == null) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") return closePreview();
       if (e.key === "ArrowRight" || e.key === "j") return previewNext();
       if (e.key === "ArrowLeft" || e.key === "k") return previewPrev();
-      // 1–9 file the photo, exactly as they do in the grid.
-      if (!e.ctrlKey && !e.altKey && !e.metaKey && e.key >= "1" && e.key <= "9") {
-        const folder = useAppStore.getState().folders.find((f) => f.shortcut === Number(e.key));
-        if (!folder) return;
-        e.preventDefault();
-        void fileTo(folder);
-        return;
-      }
       const bindings = bindingsWithDefaults(useAppStore.getState().settings.keybindings);
       const action = matchAction(bindings, e, "preview");
-      if (!action) return;
+      if (action) {
+        e.preventDefault();
+        if (action === "rotateLeft") void rotate(-90);
+        else if (action === "rotateRight") void rotate(90);
+        else if (action === "zoomIn") zoomBy(1.25);
+        else if (action === "zoomOut") zoomBy(1 / 1.25);
+        else if (action === "zoomReset") setView(RESET);
+        return;
+      }
+      // A folder's key files the photo, exactly as it does in the grid — and *after* the
+      // preview-scope actions for the same reason the grid checks them last. The pool hands out
+      // "0" as the tenth key, and "0" is zoom-reset in here; the binding wins, which is why the
+      // conflict rules leave preview-scope combos claimable in the first place.
+      const combo = eventToCombo(e);
+      if (!combo) return;
+      const folder = useAppStore.getState().folders.find((f) => f.key !== "" && f.key === combo);
+      if (!folder) return;
       e.preventDefault();
-      if (action === "rotateLeft") void rotate(-90);
-      else if (action === "rotateRight") void rotate(90);
-      else if (action === "zoomIn") zoomBy(1.25);
-      else if (action === "zoomOut") zoomBy(1 / 1.25);
-      else if (action === "zoomReset") setView(RESET);
+      void fileTo(folder);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -377,18 +381,18 @@ export function Preview() {
               {/* File this photo away without leaving the viewer. Sorting is the app's whole
                   job, and until now the preview — where you actually decide — was the one
                   place you could not do it: you had to close it, find the tile again, and
-                  press the digit. The digits work in here now too. */}
+                  press the key. The folder keys work in here too. */}
               {folders.map((f) => (
                 <button
                   key={f.id}
                   type="button"
                   className={`${toolBtn} gap-1`}
                   disabled={!!busy}
-                  title={`Move to ${f.name} (${f.shortcut})`}
+                  title={`Move to ${f.name}${f.key ? ` (${formatCombo(f.key)})` : ""}`}
                   aria-label={`Move to ${f.name}`}
                   onClick={() => void fileTo(f)}
                 >
-                  <span className="text-[10px] opacity-60 tabular-nums">{f.shortcut}</span>
+                  <span className="text-[10px] opacity-60 tabular-nums">{f.key || "—"}</span>
                   <span className="max-w-[7rem] truncate">{f.name}</span>
                 </button>
               ))}

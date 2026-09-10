@@ -2,13 +2,17 @@ import { expect, test } from "vitest";
 import {
   ACTIONS,
   DOUBLE_TAP_MS,
+  FIXED_KEYS,
+  KEY_POOL,
   isDoubleTap,
   DEFAULT_KEYBINDINGS,
   actionForCombo,
   bindingsWithDefaults,
   eventToCombo,
   formatCombo,
+  keyRank,
   matchAction,
+  reservedKeys,
 } from "./keybindings";
 
 test("eventToCombo builds canonical strings with fixed modifier order", () => {
@@ -85,4 +89,61 @@ test("isDoubleTap only accepts a second press inside the window", () => {
   expect(isDoubleTap(1000, 1010)).toBe(true);
   // A clock that jumped backwards must not read as an instant double-tap.
   expect(isDoubleTap(1000, 900)).toBe(false);
+});
+
+test("every default combo is unique across actions", () => {
+  const seen = new Map<string, string>();
+  for (const a of ACTIONS) {
+    for (const c of a.defaults) {
+      expect(seen.has(c), `${c} is on both ${seen.get(c)} and ${a.id}`).toBe(false);
+      seen.set(c, a.id);
+    }
+  }
+});
+
+test("addScanFolder defaults to Ctrl+Shift+O", () => {
+  expect(DEFAULT_KEYBINDINGS.addScanFolder).toEqual(["Ctrl+Shift+O"]);
+  expect(
+    matchAction(DEFAULT_KEYBINDINGS, { key: "O", ctrlKey: true, shiftKey: true }, "global"),
+  ).toBe("addScanFolder");
+});
+
+test("Ctrl+Shift+O does not fire the plain scan action", () => {
+  expect(matchAction(DEFAULT_KEYBINDINGS, { key: "O", ctrlKey: true }, "global")).toBe("scanFolder");
+});
+
+test("reservedKeys covers global bindings and the fixed keys, not preview ones", () => {
+  const r = reservedKeys(DEFAULT_KEYBINDINGS);
+  expect(r).toContain("Ctrl+O");
+  expect(r).toContain("B"); // trash, a global default
+  expect(r).toContain("J"); // grid nav, structural
+  expect(r).toContain("Ctrl+Z"); // undo, structural
+  expect(r).not.toContain("L"); // rotate-left is preview-scope: inert while the grid has focus
+});
+
+test("reservedKeys follows a rebind, freeing the key that was let go", () => {
+  const rebound = { ...DEFAULT_KEYBINDINGS, trash: ["Ctrl+Backspace"] };
+  const r = reservedKeys(rebound);
+  expect(r).toContain("Ctrl+Backspace");
+  expect(r).not.toContain("B"); // B is free again, so a folder may claim it
+});
+
+test("no fixed key is also a default binding", () => {
+  const defaults = new Set(ACTIONS.flatMap((a) => a.defaults));
+  for (const k of FIXED_KEYS) expect(defaults.has(k), `${k} is both fixed and bound`).toBe(false);
+});
+
+test("keyRank orders the pool and sinks anything outside it", () => {
+  expect(keyRank("1")).toBe(0);
+  expect(keyRank("0")).toBe(9);
+  expect(keyRank("Q")).toBe(10);
+  expect(keyRank("")).toBe(Number.POSITIVE_INFINITY);
+  expect(keyRank("Shift+:")).toBe(Number.POSITIVE_INFINITY);
+  expect(keyRank("1")).toBeLessThan(keyRank("Q"));
+});
+
+test("KEY_POOL matches the Rust copy in folders.rs", () => {
+  // Pinned literal: if you change one side, this test makes you change the other.
+  expect(KEY_POOL).toBe("1234567890QWERTYUIOPASDFGHJKLZXCVBNM;',./-=");
+  expect(new Set(KEY_POOL).size).toBe(KEY_POOL.length);
 });

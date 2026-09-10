@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("../lib/useThumbnail", () => ({
   useThumbnail: () => ({ url: null, status: "placeholder" }),
@@ -25,7 +25,14 @@ vi.mock("../lib/commands", () => ({
   listTargetFolders: vi.fn(async () => useAppStore.getState().folders),
 }));
 
+vi.mock("../lib/appActions", () => ({
+  scanFlow: vi.fn(async () => {}),
+  addScanFlow: vi.fn(async () => {}),
+  exitApp: vi.fn(async () => {}),
+}));
+
 import { FileGrid, folderName } from "./FileGrid";
+import * as appActions from "../lib/appActions";
 import { moveFiles, trashFiles } from "../lib/commands";
 import { useAppStore } from "../store/useAppStore";
 import type { FileInfo } from "../lib/types";
@@ -35,7 +42,7 @@ const mk = (id: string): FileInfo => ({
   modifiedAt: 0, dateTaken: null, fileType: "image", groupId: null,
 });
 
-const fam = { id: "fam", name: "fam", path: "C:/base/fam", shortcut: 1, fileCount: 0 };
+const fam = { id: "fam", name: "fam", path: "C:/base/fam", key: "1", keyCustom: false, fileCount: 0 };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -551,8 +558,8 @@ test("Enter opens the focused file in the preview", () => {
 
 test("a digit files the selection into another target folder while browsing one (§2)", async () => {
   const inFolder = { ...mk("a"), path: "C:/base/one/a.jpg" };
-  const one = { id: "one", name: "One", path: "C:/base/one", shortcut: 1, fileCount: 1 };
-  const two = { id: "two", name: "Two", path: "C:/base/two", shortcut: 2, fileCount: 0 };
+  const one = { id: "one", name: "One", path: "C:/base/one", key: "1", keyCustom: false, fileCount: 1 };
+  const two = { id: "two", name: "Two", path: "C:/base/two", key: "2", keyCustom: false, fileCount: 0 };
   useAppStore.setState({
     files: [],
     folders: [one, two],
@@ -569,7 +576,7 @@ test("a digit files the selection into another target folder while browsing one 
 });
 
 test("pressing the digit of the folder you are already inside does nothing", () => {
-  const one = { id: "one", name: "One", path: "C:/base/one", shortcut: 1, fileCount: 1 };
+  const one = { id: "one", name: "One", path: "C:/base/one", key: "1", keyCustom: false, fileCount: 1 };
   useAppStore.setState({
     files: [],
     folders: [one],
@@ -678,4 +685,55 @@ test("the next successful move clears the failure notice", async () => {
   fireEvent.keyDown(window, { key: "1" });
   await waitFor(() => expect(useAppStore.getState().files.map((f) => f.id)).toEqual(["b"]));
   await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+});
+
+/* ---------------------------------------------- folder keys beyond the digits, and the blue + */
+
+test("a folder's custom key files the focused file into it", async () => {
+  const lama = { id: "lama", name: "Foto Lama", path: "C:/base/lama", key: "F", keyCustom: true, fileCount: 0 };
+  useAppStore.setState({ files: [mk("a")], folders: [lama], focusedId: "a", selectedIds: [] });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "f" }); // lower case: normalizeKey upper-cases it
+  await waitFor(() => expect(moveFiles).toHaveBeenCalledWith(["C:/x/a.jpg"], "C:/base/lama"));
+});
+
+test("digits still file, so nothing regressed for existing users", async () => {
+  useAppStore.setState({ files: [mk("a")], folders: [fam], focusedId: "a", selectedIds: [] });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "1" });
+  await waitFor(() => expect(moveFiles).toHaveBeenCalledWith(["C:/x/a.jpg"], "C:/base/fam"));
+});
+
+test("an app shortcut wins over a folder that was somehow given the same key", async () => {
+  // The registry should never allow this, but the grid must not depend on that being true.
+  const bad = { id: "bad", name: "Bad", path: "C:/base/bad", key: "T", keyCustom: true, fileCount: 0 };
+  useAppStore.setState({ files: [mk("a")], folders: [bad], focusedId: "a", selectedIds: [] });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "t" }); // T = open trash
+  expect(useAppStore.getState().trashOpen).toBe(true);
+  expect(moveFiles).not.toHaveBeenCalled();
+});
+
+test("a keyless folder is never matched", async () => {
+  const none = { id: "none", name: "None", path: "C:/base/none", key: "", keyCustom: false, fileCount: 0 };
+  useAppStore.setState({ files: [mk("a")], folders: [none], focusedId: "a", selectedIds: [] });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "Dead" });
+  expect(moveFiles).not.toHaveBeenCalled();
+});
+
+test("Ctrl+Shift+O adds a folder to the scan", async () => {
+  useAppStore.setState({ files: [mk("a")], focusedId: "a" });
+  render(<FileGrid />);
+  fireEvent.keyDown(window, { key: "O", ctrlKey: true, shiftKey: true });
+  await waitFor(() => expect(appActions.addScanFlow).toHaveBeenCalled());
+});
+
+test("the blue + adds a folder to the scan and hides while scanning", async () => {
+  render(<FileGrid />);
+  fireEvent.click(screen.getByRole("button", { name: /add folder to the scan/i }));
+  expect(appActions.addScanFlow).toHaveBeenCalled();
+
+  act(() => useAppStore.setState({ scanning: true }));
+  expect(screen.queryByRole("button", { name: /add folder to the scan/i })).toBeNull();
 });

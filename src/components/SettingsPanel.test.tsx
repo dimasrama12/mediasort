@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("../lib/commands", () => ({
   saveSettings: vi.fn(async () => {}),
@@ -18,12 +18,14 @@ vi.mock("../lib/commands", () => ({
     keybindings: {},
   })),
   emptyScratch: vi.fn(async () => {}),
+  setReservedKeys: vi.fn(async () => {}),
   readImageDataUrl: vi.fn(async () => "data:image/jpeg;base64,AAAA"),
   pickFolder: vi.fn(async () => "D:/scratch"),
 }));
 
 import { SettingsPanel } from "./SettingsPanel";
 import { saveSettings, resetSettings } from "../lib/commands";
+import * as commands from "../lib/commands";
 import { useAppStore } from "../store/useAppStore";
 import { DEFAULT_SETTINGS } from "../lib/types";
 
@@ -132,4 +134,41 @@ test("scanning sub-folders is off by default and persists when turned on", async
   fireEvent.click(box);
   expect(useAppStore.getState().settings.scanSubfolders).toBe(true);
   await waitFor(() => expect(saveSettings).toHaveBeenCalled());
+});
+
+/* ---------------------------------------------- the reverse of the sidebar's conflict check */
+
+test("an action cannot be rebound onto a key a target folder holds", async () => {
+  act(() =>
+    useAppStore.setState({
+      settingsOpen: true,
+      folders: [
+        { id: "lama", name: "Foto Lama", path: "C:/base/lama", key: "F", keyCustom: true, fileCount: 0 },
+      ],
+    }),
+  );
+  render(<SettingsPanel />);
+  fireEvent.click(screen.getByRole("button", { name: /shortcuts/i }));
+  fireEvent.click(screen.getByRole("button", { name: /edit move to trash/i }));
+  await act(async () => {
+    fireEvent.keyDown(window, { key: "f" });
+  });
+  expect(await screen.findByText(/Foto Lama/)).toBeInTheDocument();
+  // The binding is unchanged.
+  expect(useAppStore.getState().settings.keybindings.trash).toEqual(["Delete", "B"]);
+});
+
+test("rebinding pushes the new reserved set to the backend", async () => {
+  act(() => useAppStore.setState({ settingsOpen: true, folders: [] }));
+  render(<SettingsPanel />);
+  fireEvent.click(screen.getByRole("button", { name: /shortcuts/i }));
+  fireEvent.click(screen.getByRole("button", { name: /edit move to trash/i }));
+  await act(async () => {
+    fireEvent.keyDown(window, { key: "Backspace", ctrlKey: true });
+  });
+  await waitFor(() => expect(commands.setReservedKeys).toHaveBeenCalled());
+  const calls = vi.mocked(commands.setReservedKeys).mock.calls;
+  const sent = calls[calls.length - 1][0];
+  expect(sent).toContain("Ctrl+Backspace");
+  expect(sent).not.toContain("B");
 });
