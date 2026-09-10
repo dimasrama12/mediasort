@@ -24,6 +24,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(scan::ScanState::default())
         .manage(folders::FolderState::default())
+        .manage(folders::ReservedKeys::default())
         .manage(guard::AccessScope::default())
         .setup(|app| {
             let cache_dir = app
@@ -82,6 +83,9 @@ pub fn run() {
             folders::adopt_session,
             folders::rename_folder,
             folders::delete_folder,
+            folders::set_reserved_keys,
+            folders::set_folder_key,
+            folders::reorder_folders,
             fileops::move_files,
             fileops::delete_files_permanently,
             fileops::batch_rename,

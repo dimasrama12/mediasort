@@ -78,6 +78,38 @@ mod tests {
     }
 
     #[test]
+    fn a_settings_file_without_the_sort_flag_loads_on_insertion_order() {
+        // Same back-compat guarantee as `scanSubfolders` above: the key is simply absent from a
+        // settings.json written before the A-Z toggle existed, and must land on `false` without
+        // taking every other preference down with it. The fixture carries every field that has
+        // no serde default, because a JSON missing one of those does not parse at all - it would
+        // fall back to `AppSettings::default()` and the test would pass for the wrong reason.
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("settings.json");
+        std::fs::write(
+            &p,
+            r#"{"similarityThreshold":72,"timeWindowHours":2.0,"minGroupSize":3,"theme":"dark",
+                "defaultView":"list","thumbnailSize":180,"sidebarWidth":200,
+                "sidebarCollapsed":true,"cachePath":null,"scanSubfolders":true}"#,
+        )
+        .unwrap();
+        let loaded = load_from(&p);
+        assert!(!loaded.sort_folders_alphabetically);
+        assert_eq!(loaded.similarity_threshold, 72, "the other settings survive");
+        assert!(loaded.scan_subfolders);
+    }
+
+    #[test]
+    fn sort_folders_alphabetically_roundtrips() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("settings.json");
+        let mut s = AppSettings::default();
+        s.sort_folders_alphabetically = true;
+        save_to(&p, &s).unwrap();
+        assert!(load_from(&p).sort_folders_alphabetically);
+    }
+
+    #[test]
     fn scan_subfolders_roundtrips() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("settings.json");

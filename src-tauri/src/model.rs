@@ -65,10 +65,22 @@ pub struct FileGroup {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct FolderInfo {
-    pub id: String,      // = normalize_path(path) — stable, unique, the dedup key
-    pub name: String,    // leaf folder name (display)
-    pub path: String,    // absolute path (as created)
-    pub shortcut: u8,    // 1..=9
+    pub id: String,   // = normalize_path(path) — stable, unique, the dedup key
+    pub name: String, // leaf folder name (display)
+    pub path: String, // absolute path (as created)
+    /// The single key that files into this folder: "1", "F", ";", "Shift+:". Canonically the
+    /// same string `src/lib/keybindings.ts::eventToCombo()` produces, which is what makes a
+    /// folder key and an app shortcut directly comparable. "" = no keystroke (drag-only).
+    ///
+    /// `#[serde(default)]` is the migration: a project saved before this field existed carries
+    /// `"shortcut": 3` instead, serde drops the unknown field, and the folder arrives keyless —
+    /// `adopt_session` then hands out fresh keys in saved order, reproducing 1, 2, 3…
+    #[serde(default)]
+    pub key: String,
+    /// True when the *user* picked this key. The A→Z re-key leaves these alone and takes them
+    /// out of the pool, so an auto key can never collide with one.
+    #[serde(default)]
+    pub key_custom: bool,
     pub file_count: u32, // files moved into it this session
 }
 
@@ -119,6 +131,11 @@ pub struct AppSettings {
     /// settings.json files loadable, and lands them on the safe behaviour.
     #[serde(default)]
     pub scan_subfolders: bool,
+    /// Show target folders sorted by name instead of in the order they were added, re-keying the
+    /// app-assigned keys as it goes so `1` is always the first folder in the list. Keys the user
+    /// set by hand are pinned and skipped. `#[serde(default)]` keeps older settings.json loadable.
+    #[serde(default)]
+    pub sort_folders_alphabetically: bool,
     /// Customizable keybindings: action id → one or more canonical combo strings (e.g. `"Ctrl+O"`,
     /// `"Delete"`). The frontend owns the defaults and merges them under any stored overrides, so an
     /// empty map here simply means "all defaults". Persisted verbatim; `#[serde(default)]` for
@@ -142,6 +159,7 @@ impl Default for AppSettings {
             hash_algorithm: default_hash_algorithm(),
             scratch_path: None,
             scan_subfolders: false,
+            sort_folders_alphabetically: false,
             keybindings: BTreeMap::new(),
         }
     }
@@ -202,12 +220,14 @@ mod tests {
             id: "d:\\a\\family".into(),
             name: "family".into(),
             path: "D:\\a\\family".into(),
-            shortcut: 1,
+            key: "1".into(),
+            key_custom: false,
             file_count: 3,
         };
         let j = serde_json::to_string(&f).unwrap();
         assert!(j.contains("\"fileCount\":3"));
-        assert!(j.contains("\"shortcut\":1"));
+        assert!(j.contains("\"key\":\"1\""));
+        assert!(j.contains("\"keyCustom\":false"));
     }
 
     #[test]
