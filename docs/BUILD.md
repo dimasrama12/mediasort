@@ -11,11 +11,34 @@ The app is code-complete; this is the only remaining manual step.
 ### If the build fails with `linker 'link.exe' not found`
 
 The MSVC C++ build tools are missing (`C:\Program Files\Microsoft Visual Studio\2022` exists but is
-empty — only the VS *Installer* is left). Nothing in the repo can work around this: the pinned
-`x86_64-pc-windows-msvc` target links with `link.exe` and the CRT import libraries that ship with
-the "Desktop development with C++" workload, and neither is present.
+empty — only the VS *Installer* is left). The pinned `x86_64-pc-windows-msvc` target links with
+`link.exe` and the CRT import libraries that ship with the "Desktop development with C++" workload,
+and neither is present. Two ways out; the GNU one needs no download.
 
-Reinstall them, then `npm run tauri build` works again:
+#### Option A - build against the GNU toolchain (this is what shipped 0.3.0)
+
+MinGW lives at `D:\apk\mingw64\bin` on this machine, and the whole dependency tree - `windows`,
+`webview2-com`, `image`, `trash` - compiles against it. Override the pinned toolchain and give the
+GNU artifacts their own target dir so the MSVC ones are not clobbered:
+
+```powershell
+$env:RUSTUP_TOOLCHAIN="stable-x86_64-pc-windows-gnu"
+$env:CARGO_TARGET_DIR="D:/mediasort-target-gnu"
+npx tauri build
+```
+
+~7.5 min from cold. The bundler downloads NSIS itself, so `makensis` need not be on PATH. Output:
+
+```
+D:/mediasort-target-gnu/release/bundle/nsis/MediaSort_0.3.0_x64-setup.exe   (7.6 MB)
+```
+
+Caveat: this is not the target `rust-toolchain.toml` pins. It runs, but for a build you hand to
+someone else, prefer option B and rebuild on MSVC.
+
+#### Option B - reinstall the MSVC build tools
+
+Then `npm run tauri build` works again:
 
 ```powershell
 winget install --id Microsoft.VisualStudio.2022.BuildTools --override "--quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
