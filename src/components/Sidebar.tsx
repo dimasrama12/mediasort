@@ -239,13 +239,15 @@ export function Sidebar() {
   return (
     <aside className="w-56 shrink-0 border-r border-[var(--border)] bg-[var(--panel)] flex flex-col overflow-auto">
       <div className="flex items-center gap-1 p-2">
+        {/* The path truncates, the "+N more" does not: a long first root would otherwise push the
+            one part that says "there is more than one library here" straight off the end. */}
         <div
-          className="flex-1 min-w-0 text-[11px] text-[var(--muted)] truncate"
+          className="flex flex-1 min-w-0 items-baseline gap-1 text-[11px] text-[var(--muted)]"
           title={roots.length > 0 ? roots.join("\n") : undefined}
         >
-          {base || "No folder scanned"}
+          <span className="min-w-0 truncate">{base || "No folder scanned"}</span>
           {roots.length > 1 && (
-            <span className="ml-1 text-[var(--accent-hover)]">+{roots.length - 1} more</span>
+            <span className="shrink-0 text-[var(--accent-hover)]">+{roots.length - 1} more</span>
           )}
         </div>
         <button

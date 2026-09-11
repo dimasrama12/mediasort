@@ -737,3 +737,30 @@ test("the blue + adds a folder to the scan and hides while scanning", async () =
   act(() => useAppStore.setState({ scanning: true }));
   expect(screen.queryByRole("button", { name: /add folder to the scan/i })).toBeNull();
 });
+
+test("the selection bar names the keys that exist, not a fixed 1-9 range", () => {
+  const lama = { id: "lama", name: "Foto Lama", path: "C:/base/lama", key: "F", keyCustom: true, fileCount: 0 };
+  useAppStore.setState({
+    files: [mk("a")],
+    folders: [fam, lama],
+    focusedId: "a",
+    selectedIds: ["a"],
+  });
+  render(<FileGrid />);
+  const bar = screen.getByRole("status");
+  expect(bar.textContent).toContain("1");
+  expect(bar.textContent).toContain("F");
+  expect(bar.textContent).toContain("to file them");
+});
+
+test("the selection bar offers no key hint when no folder has a key", () => {
+  const none = { id: "none", name: "None", path: "C:/base/none", key: "", keyCustom: false, fileCount: 0 };
+  useAppStore.setState({
+    files: [mk("a")],
+    folders: [none],
+    focusedId: "a",
+    selectedIds: ["a"],
+  });
+  render(<FileGrid />);
+  expect(screen.getByRole("status").textContent).not.toContain("to file them");
+});

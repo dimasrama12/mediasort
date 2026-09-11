@@ -20,7 +20,7 @@ import {
 import { trashFiles, revealInExplorer } from "../lib/commands";
 import { moveToFolder, returnToLibrary, syncFolders } from "../lib/fileActions";
 import { formatBytes } from "./Toolbar";
-import { bindingsWithDefaults, eventToCombo, matchAction } from "../lib/keybindings";
+import { bindingsWithDefaults, eventToCombo, formatCombo, matchAction } from "../lib/keybindings";
 import { scanFlow, addScanFlow, exitApp } from "../lib/appActions";
 import type { FileInfo } from "../lib/types";
 
@@ -610,6 +610,8 @@ function SelectionBar() {
   const browseFolder = useAppStore((s) => s.browseFolder);
   const clearSelection = useAppStore((s) => s.clearSelection);
 
+  const folders = useAppStore((s) => s.folders);
+
   const n = selectedIds.length;
   const source = browseFolder ? browseFiles : files;
   const bytes = useMemo(() => {
@@ -617,6 +619,9 @@ function SelectionBar() {
     const picked = new Set(selectedIds);
     return source.reduce((sum, f) => (picked.has(f.id) ? sum + f.size : sum), 0);
   }, [selectedIds, source, n]);
+  const keyed = useMemo(() => folders.filter((f) => f.key !== ""), [folders]);
+  const hintKeys = keyed.slice(0, 4).map((f) => f.key);
+  const more = keyed.length - hintKeys.length;
 
   if (n === 0) return null;
 
@@ -630,10 +635,21 @@ function SelectionBar() {
         {n} item{n > 1 ? "s" : ""} selected
       </span>
       <span className="text-xs tabular-nums text-[var(--muted)]">{formatBytes(bytes)}</span>
-      <span className="hidden text-[11px] text-[var(--muted)] sm:inline">
-        press <kbd className="rounded bg-[var(--elevated)] px-1">1</kbd>–
-        <kbd className="rounded bg-[var(--elevated)] px-1">9</kbd> to file them
-      </span>
+      {/* Names the keys that actually exist rather than the old fixed 1–9 range, and says nothing
+          at all when no folder has one — a hint pointing at keys you do not have is worse than
+          no hint. Capped at four so the pill cannot grow past the grid on a long folder list. */}
+      {hintKeys.length > 0 && (
+        <span className="hidden text-[11px] text-[var(--muted)] sm:inline">
+          press{" "}
+          {hintKeys.map((k, i) => (
+            <span key={k}>
+              {i > 0 && <span className="px-0.5">/</span>}
+              <kbd className="rounded bg-[var(--elevated)] px-1">{formatCombo(k)}</kbd>
+            </span>
+          ))}
+          {more > 0 && <span> +{more} more</span>} to file them
+        </span>
+      )}
       <button
         type="button"
         onClick={() => clearSelection()}

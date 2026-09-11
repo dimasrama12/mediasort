@@ -254,8 +254,9 @@ export function Toolbar() {
     setDateGroupSort(order);
     if (groupMode !== "date") return;
     const st = useAppStore.getState();
-    const subject = st.roots.length > 1 ? filesInScope(files, st.groupRoots) : files;
-    applyGroups(groupByDate(subject.length > 0 ? subject : files, order), "date");
+    const scoped = filesInScope(files, st.groupRoots);
+    const subject = st.roots.length > 1 && scoped.length > 0 ? scoped : files;
+    applyGroups(groupByDate(subject, order), "date");
   }
 
   const canGroup = !grouping && !scanning && files.length > 0;
